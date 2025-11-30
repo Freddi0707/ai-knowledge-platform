@@ -1,6 +1,6 @@
 """
 Main entry point for the AI Knowledge Platform.
-Used later for running backend services or dev setup scripts.
+Used for running backend services or dev setup scripts.
 """
 
 if __name__ == "__main__":
