@@ -25,6 +25,35 @@ import shutil
 import math
 
 # ------------------------------------------------------------
+# Fixed schema (standardized export from legacy project)
+# ------------------------------------------------------------
+
+# 1) These columns MUST exist in every uploaded file
+REQUIRED_COLUMNS = [
+    "title",
+    "authors",
+    "abstract",
+    "date",
+    "source",
+    "vhbRanking",
+    "abcdRanking",
+    "journal_name",
+    "doi",
+]
+
+# 2) Map your real column names -> internal names (only needed if legacy uses different casing)
+# Example: if Excel headers are "Title", "Abstract", ... then map them here.
+OPTIONAL_COLUMNS = {
+    "sources",
+    "source_count",
+    "issn",
+    "eissn",
+    "url",
+    "citations",
+    "journal_quartile",
+}
+
+# ------------------------------------------------------------
 # spaCy (optional, currently not used for cleaning)
 # ------------------------------------------------------------
 try:
@@ -33,34 +62,6 @@ try:
 except Exception:
     print("⚠ spaCy missing. Continuing without NLP cleaning.")
     nlp = None
-
-# ------------------------------------------------------------
-# Column Name Mapping (UPDATED for Link/DOI)
-# ------------------------------------------------------------
-COLUMN_MAPPINGS = {
-    "Standardized_Title": [
-        "Title", "title", "Document Title", "Document title", "Article Title",
-        "article_title", "TI", "display_name"
-    ],
-    "Standardized_Abstract": [
-        "Abstract", "abstract", "AB", "Abstract Note", "abstract_text"
-    ],
-    "Standardized_Keywords": [
-        "Keywords", "keywords", "DE", "Key Words Plus",
-        "Author Keywords", "Index Keywords"
-    ],
-    # ⭐ NEW MAPPING FOR LINK/DOI
-    "Standardized_Link": [
-        "DOI", "link", "URL", "Accession Number", "ID", "UT"
-    ],
-}
-
-STANDARDIZED_COLUMNS = {
-    "title": "Standardized_Title",
-    "abstract": "Standardized_Abstract",
-    "keywords": "Standardized_Keywords",
-    "link": "Standardized_Link",
-}
 
 
 # ------------------------------------------------------------
@@ -87,57 +88,45 @@ def get_user_file_path() -> Optional[str]:
 
 
 # ------------------------------------------------------------
-# Load + Standardize dataset (MODIFIED to include Link)
+# Load + Parse dataset
 # ------------------------------------------------------------
-def load_and_standardize_data(file_path: str) -> pd.DataFrame:
-    print(f"\n📄 Loading: {file_path}")
+def load_and_parse_standard_data(file_path: str) -> pd.DataFrame:
+    print(f"\n📄 Loading standardized file: {file_path}")
 
     if file_path.endswith(".csv"):
         df = pd.read_csv(file_path, encoding="utf-8", on_bad_lines="skip")
     else:
         df = pd.read_excel(file_path)
 
-    std = pd.DataFrame()
-    cols = {c.strip(): c for c in df.columns}
+    # Normalize headers
+    df.columns = [str(c).strip() for c in df.columns]
 
-    # Map each standardized column (now includes Link)
-    for std_col, names in COLUMN_MAPPINGS.items():
-        found = False
-        for name in names:
-            if name in cols:
-                std[std_col] = df[cols[name]]
-                found = True
-                break
-        if not found:
-            std[std_col] = ""
+    # Validate required columns
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"❌ Missing required columns: {missing}\n"
+            f"Found columns: {list(df.columns)}"
+        )
 
-    # NaN -> ""
-    for col in std.columns:
-        std[col] = std[col].apply(safe_str)
+    # Keep only known columns (order is intentional)
+    cols = REQUIRED_COLUMNS + [c for c in OPTIONAL_COLUMNS if c in df.columns]
+    df = df[cols]
 
-    # Ensure Standardized_Link is created even if empty after mapping
-    if "Standardized_Link" not in std.columns:
-        std["Standardized_Link"] = ""
+    # Clean NaNs
+    for col in df.columns:
+        df[col] = df[col].apply(safe_str)
 
-    total_before = len(std)
+    # Optional hard filter (recommended for embeddings)
+    df = df[
+        (df["title"].str.strip() != "") &
+        (df["abstract"].str.strip() != "")
+    ]
 
-    # ⭐ ONLY KEEP rows with ALL THREE (Title, Abstract, Keywords) non-empty:
-    mask = (
-            (std["Standardized_Title"].str.strip() != "") &
-            (std["Standardized_Abstract"].str.strip() != "") &
-            (std["Standardized_Keywords"].str.strip() != "")
-    )
-    std = std[mask]
+    print(f"✔ Valid rows kept: {len(df)}")
+    return df
 
-    total_after = len(std)
 
-    print(f"✔ Papers with Title + Abstract + Keywords: {total_after} / {total_before}")
-
-    print("🔹 Non-empty Titles:   ", (std["Standardized_Title"].str.strip() != "").sum())
-    print("🔹 Non-empty Abstracts:", (std["Standardized_Abstract"].str.strip() != "").sum())
-    print("🔹 Non-empty Keywords: ", (std["Standardized_Keywords"].str.strip() != "").sum())
-
-    return std
 
 
 # ------------------------------------------------------------
@@ -147,25 +136,31 @@ def create_documents_and_metadata(df: pd.DataFrame):
     contents, metadatas, ids = [], [], []
 
     for idx, row in df.iterrows():
-        title = safe_str(row["Standardized_Title"])
-        abstract = safe_str(row["Standardized_Abstract"])
-        keywords = safe_str(row["Standardized_Keywords"])
-        link = safe_str(row["Standardized_Link"])  # ⭐ GET THE LINK
+        title = row["title"]
+        abstract = row["abstract"]
+        keywords = row.get("sources", "") or row.get("journal_name", "")
+        doi = row.get("doi", "")
+        url = row.get("url", "")
+
+        link = url if url else (f"https://doi.org/{doi}" if doi else "")
 
         # Rich document text (used for embedding)
         content = f"""
-Title: {title}
-Abstract: {abstract}
-Keywords: {keywords}
-""".strip()
+        Title: {title}
+        Abstract: {abstract}
+        Authors: {row["authors"]}
+        Journal: {row["journal_name"]}
+        Year: {row["date"]}
+        """.strip()
 
         # Append additional fields as context (optional)
         extras = []
         for col in df.columns:
-            if col not in STANDARDIZED_COLUMNS.values():
+            if col not in REQUIRED_COLUMNS and col not in OPTIONAL_COLUMNS:
                 val = safe_str(row[col])
                 if val.strip():
                     extras.append(f"{col}: {val}")
+
         if extras:
             content += "\n" + " | ".join(extras)
 
@@ -179,10 +174,17 @@ Keywords: {keywords}
 
         metadatas.append({
             "title": title,
+            "authors": row["authors"],
+            "journal": row["journal_name"],
+            "year": row["date"],
+            "doi": doi,
+            "url": link,
+            "citations": row.get("citations", ""),
+            "vhb_ranking": row.get("vhbRanking", ""),
+            "abcd_ranking": row.get("abcdRanking", ""),
+            "abstract_snippet": snippet,
+            "access_link": link,
             "keywords": keywords,
-            "row_index": int(idx),
-            "abstract_snippet": snippet,  # ⭐ ADD SNIPPET
-            "access_link": link,  # ⭐ ADD LINK
         })
 
         ids.append(f"doc_{idx}")
@@ -246,9 +248,10 @@ def run_indexing_pipeline(file_path: str):
     DB = "./research_index_db"
     COL = "papers_collection"
 
-    df = load_and_standardize_data(file_path)
+    df = load_and_parse_standard_data(file_path)
+
     if df.empty:
-        print("❌ No papers with title + abstract + keywords. Aborting.")
+        print("❌ No papers with title + abstract. Aborting.")
         return
 
     contents, metadatas, ids = create_documents_and_metadata(df)
