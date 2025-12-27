@@ -25,11 +25,14 @@ def normalize_col(col: str) -> str:
     s = s.strip()
     s = " ".join(s.split())
 
-    # Remove wrapping quotes if present
-    if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
+    # Remove wrapping quotes repeatedly (handles "'title'" and '"title"')
+    while len(s) >= 2 and (
+            (s[0] == '"' and s[-1] == '"') or
+            (s[0] == "'" and s[-1] == "'")
+    ):
         s = s[1:-1].strip()
 
-    # Remove stray quotes at edges (defensive)
+    # Remove any remaining edge quotes (defensive)
     s = s.strip('"').strip("'").strip()
     return s
 
