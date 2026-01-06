@@ -4,7 +4,6 @@ import math
 import re
 import hashlib
 from typing import Optional, List, Tuple, Dict
-
 import pandas as pd
 
 
@@ -412,3 +411,26 @@ MERGE (p)-[:HAS_KEYWORD]->(k);
 
     print(f"\n🧾 Wrote Cypher import script: {os.path.abspath(cypher_path)}")
     return cypher_path
+
+
+if __name__ == "__main__":
+    # 1. Get the file path from the user
+    path = get_user_file_path()
+
+    if path:
+        try:
+            # 2. Process the data (Clean and Filter)
+            df_cleaned = load_and_parse_standard_data(path)
+
+            # 3. Generate Neo4j-ready CSV files
+            # These will be saved in ./neo4j/import by default
+            export_neo4j_csvs(df_cleaned)
+
+            # 4. Generate the Cypher script to automate the database import
+            write_neo4j_import_cypher()
+
+            print("\n✅ ETL Pipeline finished successfully!")
+            print("Next step: Copy the CSVs and .cypher file to your Neo4j 'import' folder.")
+
+        except Exception as e:
+            print(f"\n❌ An error occurred during processing: {e}")

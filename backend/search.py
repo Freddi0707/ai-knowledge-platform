@@ -59,14 +59,32 @@ Year: {row["date"]}
 
 
 def create_vector_store(contents, metadatas, ids, db_path, collection_name):
-    """Createvector store"""
+    """Create ChromaDB vector store with better lock handling"""
+    import shutil
+    import time
+
     print("\n🧮 Generating embeddings...")
 
     model = SentenceTransformer("all-MiniLM-L6-v2")
     embeddings = model.encode(contents, normalize_embeddings=True).tolist()
 
+    # Force close any existing connections
     if os.path.exists(db_path):
-        shutil.rmtree(db_path)
+        print("🧹 Cleaning up old database...")
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                shutil.rmtree(db_path)
+                print("✅ Old database removed")
+                break
+            except PermissionError:
+                if attempt < max_attempts - 1:
+                    print(f"⚠️ Database locked, retrying ({attempt + 1}/{max_attempts})...")
+                    time.sleep(2)
+                else:
+                    # Use a new path if still locked
+                    db_path = f"{db_path}_{int(time.time())}"
+                    print(f"⚠️ Using new path: {db_path}")
 
     client = PersistentClient(path=db_path)
     collection = client.get_or_create_collection(
