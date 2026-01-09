@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Search, FileText, Loader, CheckCircle, AlertCircle } from 'lucide-react';
+import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp } from 'lucide-react';
 
 // Epistemische UI-Komponenten
 import TransparencyPanel from './components/TransparencyPanel';
@@ -19,17 +19,19 @@ const DEMO_PAPERS = [
     vhbRanking: "A",
     abdcRanking: "A*",
     doi: "10.1016/j.jretai.2020.11.002",
-    journal_name: "Journal of Retailing"
+    journal_name: "Journal of Retailing",
+    citations: 342
   },
   {
     title: "Understanding Customer Experience Throughout the Customer Journey",
     authors: "Lemon, Katherine N.; Verhoef, Peter C.",
-    date: "2020-11-01",
+    date: "2016-11-01",
     sources: "Customer Journey; Touchpoints; Marketing; Customer Experience",
     vhbRanking: "A+",
     abdcRanking: "A*",
     doi: "10.1509/jm.15.0420",
-    journal_name: "Journal of Marketing"
+    journal_name: "Journal of Marketing",
+    citations: 891
   },
   {
     title: "Artificial Intelligence in Customer Experience: A Systematic Review",
@@ -39,7 +41,8 @@ const DEMO_PAPERS = [
     vhbRanking: "B",
     abdcRanking: "A",
     doi: "10.1108/JSM-02-2022-0045",
-    journal_name: "Journal of Service Management"
+    journal_name: "Journal of Service Management",
+    citations: 56
   },
   {
     title: "Digital Transformation and Customer Loyalty in Retail",
@@ -49,27 +52,30 @@ const DEMO_PAPERS = [
     vhbRanking: "A",
     abdcRanking: "A",
     doi: "10.1016/j.jbusres.2022.12.001",
-    journal_name: "Journal of Business Research"
+    journal_name: "Journal of Business Research",
+    citations: 28
   },
   {
     title: "The Role of AI in Modern Marketing Strategies",
     authors: "Smith, John; Klaus, Phil",
-    date: "2023-05-15",
+    date: "2024-05-15",
     sources: "Artificial Intelligence; Marketing; Strategy; Digital",
     vhbRanking: "B",
     abdcRanking: "A",
     doi: "10.1016/j.jmr.2023.01.001",
-    journal_name: "Journal of Marketing Research"
+    journal_name: "Journal of Marketing Research",
+    citations: 12
   },
   {
     title: "Service Quality and Customer Satisfaction: A Meta-Analysis",
     authors: "Parasuraman, A.; Lemon, Katherine N.",
-    date: "2019-08-20",
+    date: "2017-08-20",
     sources: "Service Quality; Customer Satisfaction; Meta-Analysis; Marketing",
     vhbRanking: "A",
     abdcRanking: "A*",
     doi: "10.1016/j.jsr.2019.05.002",
-    journal_name: "Journal of Service Research"
+    journal_name: "Journal of Service Research",
+    citations: 523
   }
 ];
 
@@ -124,14 +130,10 @@ const DEMO_RESULTS = {
 // ========== HAUPTKOMPONENTE ==========
 
 export default function HybridRAGInterface() {
-  // App State: 1=Upload, 2=Graph Explorer, 3=Search
-  const [currentStep, setCurrentStep] = useState(1);
-
   // Upload State
   const [file, setFile] = useState(null);
-  const [status, setStatus] = useState('idle');
-  const [progress, setProgress] = useState('');
-  const [error, setError] = useState('');
+  const [uploadStatus, setUploadStatus] = useState('idle'); // idle, uploading, ready
+  const [uploadProgress, setUploadProgress] = useState('');
 
   // Data State
   const [papers, setPapers] = useState([]);
@@ -141,14 +143,18 @@ export default function HybridRAGInterface() {
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState(null);
+  const [showResults, setShowResults] = useState(false);
+
+  // UI State
+  const [uploadExpanded, setUploadExpanded] = useState(true);
 
   // ========== DEMO MODUS ==========
   const activateDemoMode = () => {
     setPapers(DEMO_PAPERS);
     setPapersCount(DEMO_PAPERS.length);
-    setStatus('ready');
-    setProgress(`Demo-Modus: ${DEMO_PAPERS.length} Papers geladen`);
-    setCurrentStep(2);
+    setUploadStatus('ready');
+    setUploadProgress(`Demo: ${DEMO_PAPERS.length} Papers geladen`);
+    setUploadExpanded(false);
   };
 
   // ========== UPLOAD HANDLER ==========
@@ -157,9 +163,8 @@ export default function HybridRAGInterface() {
     if (!uploadedFile) return;
 
     setFile(uploadedFile);
-    setStatus('uploading');
-    setProgress('Datei wird hochgeladen...');
-    setError('');
+    setUploadStatus('uploading');
+    setUploadProgress('Datei wird hochgeladen...');
 
     try {
       const formData = new FormData();
@@ -171,256 +176,246 @@ export default function HybridRAGInterface() {
       });
 
       if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json();
-        throw new Error(errorData.error || 'Upload failed');
+        throw new Error('Upload failed');
       }
 
       const uploadResult = await uploadResponse.json();
-
-      // TODO: Papers vom Backend laden
       setPapers(DEMO_PAPERS); // Fallback zu Demo
       setPapersCount(uploadResult.papers_count || 0);
-      setStatus('ready');
-      setProgress(`${uploadResult.papers_count} Papers verarbeitet`);
-      setCurrentStep(2);
+      setUploadStatus('ready');
+      setUploadProgress(`${uploadResult.papers_count} Papers verarbeitet`);
+      setUploadExpanded(false);
     } catch (err) {
       // Fallback zu Demo bei Fehler
       setPapers(DEMO_PAPERS);
       setPapersCount(DEMO_PAPERS.length);
-      setStatus('ready');
-      setProgress(`Demo-Modus (Backend nicht verfügbar)`);
-      setCurrentStep(2);
+      setUploadStatus('ready');
+      setUploadProgress(`Demo-Modus (Backend nicht verfügbar)`);
+      setUploadExpanded(false);
     }
   };
 
   // ========== SEARCH HANDLER ==========
-  const handleDemoSearch = () => {
+  const handleSearch = () => {
     if (!query.trim()) return;
     setSearching(true);
+    setShowResults(false);
     setTimeout(() => {
       setResults(DEMO_RESULTS);
       setSearching(false);
+      setShowResults(true);
     }, 1000);
   };
 
   // ========== RENDER ==========
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-6">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">
-            AI Knowledge Platform
-          </h1>
-          <p className="text-gray-600">
-            Semantic Search + Knowledge Graph powered by AI
-          </p>
-          <p className="text-xs text-gray-400 mt-1">
+    <div className="h-screen flex flex-col bg-gray-100">
+      {/* Header */}
+      <header className="bg-white border-b px-6 py-3 flex items-center justify-between flex-shrink-0">
+        <div>
+          <h1 className="text-xl font-bold text-gray-800">AI Knowledge Platform</h1>
+          <p className="text-xs text-gray-500">
             Basierend auf den 5 epistemischen Prinzipien (Malik & Terzidis, 2025)
           </p>
+        </div>
+        {uploadStatus === 'idle' && (
+          <button
+            onClick={activateDemoMode}
+            className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors text-sm font-medium"
+          >
+            Demo starten
+          </button>
+        )}
+      </header>
 
-          {/* Demo Button */}
-          {currentStep === 1 && (
-            <button
-              onClick={activateDemoMode}
-              className="mt-4 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors text-sm font-medium"
+      {/* Main Layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left: Upload + Graph */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Upload Section - Collapsible */}
+          {uploadStatus === 'idle' ? (
+            <div className="p-4 bg-white border-b">
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-indigo-400 transition-colors">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="file-upload"
+                />
+                <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
+                  <FileText className="w-12 h-12 text-gray-400 mb-3" />
+                  <p className="text-gray-600 mb-1">Excel oder CSV hochladen</p>
+                  <p className="text-sm text-gray-400">.xlsx, .xls, .csv</p>
+                </label>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="bg-white border-b cursor-pointer"
+              onClick={() => setUploadExpanded(!uploadExpanded)}
             >
-              Demo-Modus starten
-            </button>
+              <div className="px-4 py-2 flex items-center justify-between">
+                <div className="flex items-center">
+                  <CheckCircle className="w-5 h-5 text-green-500 mr-2" />
+                  <span className="text-sm text-gray-700">{uploadProgress}</span>
+                </div>
+                {uploadExpanded ? (
+                  <ChevronUp className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                )}
+              </div>
+              {uploadExpanded && (
+                <div className="px-4 pb-3 pt-1 border-t">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      id="file-upload-2"
+                    />
+                    <label
+                      htmlFor="file-upload-2"
+                      className="text-sm text-indigo-600 hover:underline cursor-pointer"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Andere Datei hochladen
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
-          {/* Step Indicator */}
-          <div className="flex justify-center mt-6 space-x-4">
-            {[
-              { num: 1, label: 'Upload' },
-              { num: 2, label: 'Graph erkunden' },
-              { num: 3, label: 'Fragen stellen' }
-            ].map((step, idx) => (
-              <div key={step.num} className="flex items-center">
-                <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors
-                    ${currentStep >= step.num ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500'}`}
-                >
-                  {step.num}
-                </div>
-                <span className={`ml-2 text-sm ${currentStep >= step.num ? 'text-gray-700' : 'text-gray-400'}`}>
-                  {step.label}
-                </span>
-                {idx < 2 && (
-                  <div className={`ml-4 w-16 h-0.5 ${currentStep > step.num ? 'bg-indigo-600' : 'bg-gray-200'}`} />
-                )}
+          {/* Graph Explorer */}
+          {papers.length > 0 ? (
+            <div className="flex-1 overflow-hidden p-4">
+              <GraphExplorer papers={papers} />
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-gray-400">
+              <div className="text-center">
+                <Upload className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>Lade Papers hoch oder starte den Demo-Modus</p>
               </div>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
 
-        {/* ========== STEP 1: UPLOAD ========== */}
-        {currentStep === 1 && (
-          <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
-            <div className="flex items-center mb-4">
-              <Upload className="w-6 h-6 mr-2 text-indigo-600" />
-              <h2 className="text-2xl font-semibold text-gray-800">
-                Research Papers hochladen
-              </h2>
+        {/* Right Sidebar: Search & Results */}
+        <div className="w-96 bg-white border-l flex flex-col flex-shrink-0">
+          {/* Search Header */}
+          <div className="p-4 border-b">
+            <div className="flex items-center mb-3">
+              <MessageSquare className="w-5 h-5 text-indigo-600 mr-2" />
+              <h2 className="font-semibold text-gray-800">Fragen stellen</h2>
             </div>
 
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-indigo-400 transition-colors">
+            {/* Search Input */}
+            <div className="flex space-x-2">
               <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                onChange={handleFileUpload}
-                className="hidden"
-                id="file-upload"
-                disabled={status === 'uploading'}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                placeholder="z.B. Was ist Customer Experience?"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                disabled={papers.length === 0}
               />
-              <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
-                {status === 'idle' ? (
-                  <>
-                    <FileText className="w-16 h-16 text-gray-400 mb-4" />
-                    <p className="text-lg text-gray-600 mb-2">Klicken um Excel oder CSV hochzuladen</p>
-                    <p className="text-sm text-gray-400">Unterstützt: .xlsx, .xls, .csv</p>
-                  </>
-                ) : status === 'uploading' ? (
-                  <>
-                    <Loader className="w-16 h-16 text-indigo-600 mb-4 animate-spin" />
-                    <p className="text-lg text-indigo-600 font-medium">{progress}</p>
-                  </>
-                ) : status === 'ready' ? (
-                  <>
-                    <CheckCircle className="w-16 h-16 text-green-600 mb-4" />
-                    <p className="text-lg text-green-600 font-medium">{progress}</p>
-                  </>
+              <button
+                onClick={handleSearch}
+                disabled={!query.trim() || searching || papers.length === 0}
+                className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 transition-colors"
+              >
+                {searching ? (
+                  <Loader className="w-5 h-5 animate-spin" />
                 ) : (
-                  <>
-                    <AlertCircle className="w-16 h-16 text-red-600 mb-4" />
-                    <p className="text-lg text-red-600 font-medium">{error}</p>
-                  </>
+                  <Send className="w-5 h-5" />
                 )}
-              </label>
+              </button>
             </div>
-          </div>
-        )}
 
-        {/* ========== STEP 2: GRAPH EXPLORER ========== */}
-        {currentStep === 2 && (
-          <GraphExplorer
-            papers={papers}
-            onContinue={() => setCurrentStep(3)}
-          />
-        )}
-
-        {/* ========== STEP 3: SEARCH ========== */}
-        {currentStep >= 3 && (
-          <>
-            {/* Search Box */}
-            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-              <div className="flex items-center mb-4">
-                <Search className="w-6 h-6 mr-2 text-indigo-600" />
-                <h2 className="text-2xl font-semibold text-gray-800">
-                  Fragen stellen
-                </h2>
-                <button
-                  onClick={() => setCurrentStep(2)}
-                  className="ml-auto text-sm text-indigo-600 hover:underline"
-                >
-                  ← Zurück zum Graph
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleDemoSearch()}
-                    placeholder="z.B. Was ist Customer Experience Management?"
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  />
+            {/* Example Questions */}
+            {papers.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1">
+                {["Customer Experience?", "Papers von Klaus?", "AI Research?"].map((q) => (
                   <button
-                    onClick={handleDemoSearch}
-                    disabled={!query.trim() || searching}
-                    className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 transition-colors flex items-center space-x-2"
+                    key={q}
+                    onClick={() => setQuery(q)}
+                    className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
                   >
-                    {searching ? (
-                      <>
-                        <Loader className="w-5 h-5 animate-spin" />
-                        <span>Suche...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Search className="w-5 h-5" />
-                        <span>Suchen</span>
-                      </>
-                    )}
+                    {q}
                   </button>
-                </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-                {/* Example Questions */}
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    "What is customer experience?",
-                    "Which papers were written by Klaus?",
-                    "Who collaborated on AI research?",
-                    "Show me papers about loyalty"
-                  ].map((example) => (
-                    <button
-                      key={example}
-                      onClick={() => setQuery(example)}
-                      className="text-sm px-3 py-1 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors"
-                    >
-                      {example}
-                    </button>
-                  ))}
+          {/* Results Area */}
+          <div className="flex-1 overflow-y-auto">
+            {!results && !searching && (
+              <div className="h-full flex items-center justify-center text-gray-400 p-4">
+                <div className="text-center">
+                  <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">
+                    {papers.length === 0
+                      ? "Lade zuerst Papers hoch"
+                      : "Stelle eine Frage zu deinen Papers"
+                    }
+                  </p>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Results */}
-            {results && (
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-semibold text-gray-800">Antwort</h3>
-                  {results.graphUsed && (
-                    <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
-                      Knowledge Graph verwendet
-                    </span>
-                  )}
+            {searching && (
+              <div className="h-full flex items-center justify-center">
+                <div className="text-center">
+                  <Loader className="w-8 h-8 mx-auto mb-3 animate-spin text-indigo-600" />
+                  <p className="text-sm text-gray-500">Suche in Knowledge Graph...</p>
+                </div>
+              </div>
+            )}
+
+            {showResults && results && (
+              <div className="p-4 space-y-4">
+                {/* Answer */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-gray-800">Antwort</h3>
+                    {results.graphUsed && (
+                      <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">
+                        Knowledge Graph
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 leading-relaxed">
+                    {results.answer}
+                  </div>
                 </div>
 
-                <div className="prose max-w-none mb-6 p-4 bg-gray-50 rounded-lg">
-                  <p className="text-gray-700 leading-relaxed">{results.answer}</p>
-                </div>
-
+                {/* Cypher Query - Traceability */}
                 {results.cypherQuery && (
-                  <div className="mb-6 bg-gray-50 rounded-lg p-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">
-                      Verwendete Cypher Query (Nachvollziehbarkeit):
-                    </p>
-                    <code className="text-xs text-gray-600 block bg-white p-3 rounded border overflow-x-auto">
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs font-medium text-gray-500 mb-1">Cypher Query:</p>
+                    <code className="text-xs text-gray-600 block bg-white p-2 rounded border overflow-x-auto">
                       {results.cypherQuery}
                     </code>
                   </div>
                 )}
 
-                {/* Epistemische Panels */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-                  <TransparencyPanel confidence={results.confidence} sources={results.sources} />
-                  <ProportionalityPanel sources={results.sources} />
-                </div>
+                {/* Epistemic Panels */}
+                <TransparencyPanel confidence={results.confidence} sources={results.sources} />
+                <ProportionalityPanel sources={results.sources} />
+                <ContextPanel sources={results.sources} totalPapers={papersCount} query={query} />
 
-                <div className="mb-6">
-                  <ContextPanel sources={results.sources} totalPapers={papersCount} query={query} />
-                </div>
-
-                {/* Quellen */}
-                <div className="border-t pt-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-lg font-semibold text-gray-800">
-                      Quellen ({results.sources?.length || 0})
-                    </h4>
-                  </div>
-                  <div className="space-y-4">
+                {/* Sources */}
+                <div>
+                  <h4 className="font-semibold text-gray-800 mb-3">
+                    Quellen ({results.sources?.length})
+                  </h4>
+                  <div className="space-y-3">
                     {results.sources?.map((source, idx) => (
                       <SourceCard key={idx} source={source} index={idx + 1} />
                     ))}
@@ -428,16 +423,14 @@ export default function HybridRAGInterface() {
                 </div>
               </div>
             )}
-          </>
-        )}
-
-        {/* Footer */}
-        <div className="mt-8 text-center text-xs text-gray-400">
-          <p>
-            Transparenz | Nachvollziehbarkeit | Proportionalität | Intersubjektivität | Kontextualisierung
-          </p>
+          </div>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="bg-white border-t px-4 py-2 text-center text-xs text-gray-400 flex-shrink-0">
+        Transparenz | Nachvollziehbarkeit | Proportionalität | Intersubjektivität | Kontextualisierung
+      </footer>
     </div>
   );
 }

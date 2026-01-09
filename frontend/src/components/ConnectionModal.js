@@ -52,16 +52,26 @@ export default function ConnectionModal({ connection, onClose, onPaperClick }) {
             </div>
           </div>
 
-          {/* Transparenz-Erklärung */}
+          {/* Transparenz-Erklärung: Knowledge Graph */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
             <div className="flex items-center mb-2">
-              <span className="text-lg mr-2">🎯</span>
+              <span className="text-lg mr-2">🔗</span>
               <h4 className="font-semibold text-blue-800">Warum sind diese Papers verbunden?</h4>
             </div>
-            <p className="text-sm text-blue-700">
-              Die Verbindung basiert auf gemeinsamen Eigenschaften, die auf thematische
-              oder autorenbezogene Zusammenhänge hinweisen.
+            <p className="text-sm text-blue-700 mb-3">
+              Diese Verbindung basiert auf <strong>relationalen Beziehungen</strong> im Knowledge Graph -
+              nicht auf semantischer Textähnlichkeit.
             </p>
+            <div className="bg-white rounded p-3 text-xs text-gray-600">
+              <p className="font-medium text-gray-700 mb-1">Knowledge Graph vs. Semantische Suche:</p>
+              <ul className="space-y-1">
+                <li>• <strong>Relational (hier):</strong> Explizite Verbindungen wie gemeinsame Autoren, Themen, Zitationen</li>
+                <li>• <strong>Semantisch:</strong> Ähnlichkeit basierend auf Textinhalt und Bedeutung</li>
+              </ul>
+              <p className="mt-2 text-gray-500">
+                Der Knowledge Graph zeigt nachvollziehbare, faktische Beziehungen zwischen Papers.
+              </p>
+            </div>
           </div>
 
           {/* Gemeinsame Autoren */}
