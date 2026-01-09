@@ -124,7 +124,7 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
     selectedRankings.vhb.length + selectedRankings.abdc.length;
 
   return (
-    <div className="w-72 bg-white border-r border-gray-200 h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto">
       {/* Header */}
       <div className="sticky top-0 bg-white border-b px-4 py-3 flex items-center justify-between">
         <div className="flex items-center">

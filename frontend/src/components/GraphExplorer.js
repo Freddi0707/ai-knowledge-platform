@@ -164,16 +164,18 @@ export default function GraphExplorer({ papers = [], onContinue }) {
       </div>
 
       {/* Main Content: Sidebar + Graph */}
-      <div className="flex" style={{ height: '600px' }}>
-        {/* Sidebar */}
-        <FilterSidebar
-          papers={papers}
-          filters={filters}
-          onFilterChange={handleFilterChange}
-        />
+      <div className="flex border-t" style={{ height: '600px' }}>
+        {/* Sidebar - Fixed width */}
+        <div className="w-72 flex-shrink-0 border-r bg-white overflow-hidden">
+          <FilterSidebar
+            papers={papers}
+            filters={filters}
+            onFilterChange={handleFilterChange}
+          />
+        </div>
 
-        {/* Graph Area */}
-        <div className="flex-1 flex flex-col">
+        {/* Graph Area - Takes remaining space */}
+        <div className="flex-1 flex flex-col min-w-0">
           {/* Graph Controls */}
           <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b">
             {/* Legende */}
