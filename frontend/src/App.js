@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp } from 'lucide-react';
 
+// API Configuration - uses environment variable with fallback
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
 // Epistemische UI-Komponenten
 import TransparencyPanel from './components/TransparencyPanel';
 import ProportionalityPanel from './components/ProportionalityPanel';
@@ -170,7 +173,7 @@ export default function HybridRAGInterface() {
       const formData = new FormData();
       formData.append('file', uploadedFile);
 
-      const uploadResponse = await fetch('http://localhost:5000/api/upload', {
+      const uploadResponse = await fetch(`${API_BASE_URL}/api/upload`, {
         method: 'POST',
         body: formData
       });
@@ -196,15 +199,35 @@ export default function HybridRAGInterface() {
   };
 
   // ========== SEARCH HANDLER ==========
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!query.trim()) return;
     setSearching(true);
     setShowResults(false);
-    setTimeout(() => {
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/search`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: query.trim() })
+      });
+
+      if (!response.ok) {
+        throw new Error('Search failed');
+      }
+
+      const data = await response.json();
+      setResults(data);
+      setSearching(false);
+      setShowResults(true);
+    } catch (err) {
+      // Fallback to demo results if backend unavailable
+      console.warn('Backend unavailable, using demo results:', err);
       setResults(DEMO_RESULTS);
       setSearching(false);
       setShowResults(true);
-    }, 1000);
+    }
   };
 
   // ========== RENDER ==========

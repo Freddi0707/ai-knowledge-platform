@@ -14,6 +14,10 @@ from werkzeug.utils import secure_filename
 import os
 import tempfile
 from neo4j import GraphDatabase
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import your existing modules
 from backend.etl import (
@@ -31,15 +35,19 @@ from backend.search import (
 )
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend
 
-# Configuration
-UPLOAD_FOLDER = './uploads'
-DB_PATH = "./research_index_db"
-COLLECTION_NAME = "papers_collection"
-NEO4J_URL = "bolt://localhost:7687"
-NEO4J_USER = "neo4j"
-NEO4J_PASS = "Chongyichian@2257"  # Change this!
+# Configuration (use environment variables with fallbacks)
+UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', './uploads')
+DB_PATH = os.getenv('DB_PATH', './research_index_db')
+COLLECTION_NAME = os.getenv('COLLECTION_NAME', 'papers_collection')
+NEO4J_URL = os.getenv('NEO4J_URL', 'bolt://localhost:7687')
+NEO4J_USER = os.getenv('NEO4J_USER', 'neo4j')
+NEO4J_PASS = os.getenv('NEO4J_PASS', 'password')
+FLASK_PORT = int(os.getenv('FLASK_PORT', '5000'))
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+
+# Enable CORS for frontend (restrict to specific origin in production)
+CORS(app, origins=[FRONTEND_URL])
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -290,13 +298,15 @@ def health():
 
 
 if __name__ == '__main__':
-    print("""
+    print(f"""
 ╔══════════════════════════════════════════════════════════╗
 ║         HYBRID RAG API SERVER                           ║
 ║         Automatic Neo4j Import + Web Interface          ║
 ╚══════════════════════════════════════════════════════════╝
 
-Starting server on http://localhost:5000
+Starting server on http://localhost:{FLASK_PORT}
+Neo4j: {NEO4J_URL}
+Frontend: {FRONTEND_URL}
     """)
 
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=FLASK_PORT)
