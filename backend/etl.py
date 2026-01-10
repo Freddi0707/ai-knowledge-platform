@@ -198,48 +198,188 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
+def extract_year(date_str: str) -> str:
+    """
+    Extract year from date string.
+    Handles formats like: '2021-03-15', '2021', '15.03.2021', etc.
+    """
+    s = safe_str(date_str).strip()
+    if not s:
+        return ""
+    # Try to find 4-digit year
+    match = re.search(r'(19|20)\d{2}', s)
+    if match:
+        return match.group(0)
+    return ""
+
+
 def export_neo4j_csvs(
     df: pd.DataFrame,
     out_dir: str = "./neo4j/import",
     export_keywords: bool = True,
 ) -> Dict[str, str]:
     """
-    Writes Neo4j-friendly CSVs for Stage 1.
+    Writes Neo4j-friendly CSVs based on Knowledge Architect schema.
 
-    Outputs:
-    - papers.csv               (:Paper)
+    Nodes:
+    - documents.csv            (:Document)
     - authors.csv              (:Author)
-    - authored.csv             (:Author)-[:AUTHORED]->(:Paper)
+    - journals.csv             (:Journal)
+    - ranking_bodies.csv       (:RankingBody)
+    - rankings.csv             (:Ranking)
+    - years.csv                (:Year)
 
-    Optional (if export_keywords and 'sources' present):
-    - keywords.csv             (:Keyword)
-    - has_keyword.csv          (:Paper)-[:HAS_KEYWORD]->(:Keyword)
+    Relationships:
+    - has_author.csv           (:Document)-[:HAS_AUTHOR]->(:Author)
+    - published_in.csv         (:Document)-[:PUBLISHED_IN]->(:Journal)
+    - has_rating.csv           (:Journal)-[:HAS_RATING]->(:Ranking)
+    - issued_by.csv            (:Ranking)-[:ISSUED_BY]->(:RankingBody)
+    - collaborated_with.csv    (:Author)-[:COLLABORATED_WITH]->(:Author)
+    - same_year_as.csv         (:Document)-[:SAME_YEAR_AS]->(:Document)
+    - is_valid_in_year.csv     (:Ranking)-[:IS_VALID_IN_YEAR]->(:Year)
 
     IDs:
-    - Paper ID = doi  (as agreed)
+    - Document ID = doi
     - Author ID = AUTHOR_<sha1(author_name)>
-    - Keyword ID = KEYWORD_<sha1(keyword)>
+    - Journal ID = JOURNAL_<sha1(journal_name)>
+    - RankingBody ID = VHB or ABDC
+    - Ranking ID = RANKING_<body>_<value>
+    - Year ID = YEAR_<yyyy>
     """
     ensure_dir(out_dir)
+    written = {}
+
+    # =========================================================
+    # NODES
+    # =========================================================
 
     # -------------------------
-    # Papers
+    # Documents (formerly Papers)
     # -------------------------
-    papers = df.copy()
-    papers["paper_id"] = papers["doi"].apply(lambda x: safe_str(x).strip())
+    documents = df.copy()
+    documents["document_id"] = documents["doi"].apply(lambda x: safe_str(x).strip())
 
-    # Put paper_id first, keep rest as properties
-    paper_cols = ["paper_id"] + [c for c in papers.columns if c != "paper_id"]
-    papers = papers[paper_cols]
+    # Select only Document properties according to schema
+    doc_cols = ["document_id", "title", "abstract", "doi", "url"]
+    doc_cols = [c for c in doc_cols if c in documents.columns or c == "document_id"]
+    documents_export = documents[["document_id", "title", "abstract", "doi"]].copy()
+    if "url" in documents.columns:
+        documents_export["url"] = documents["url"]
 
-    papers_path = os.path.join(out_dir, "papers.csv")
-    papers.to_csv(papers_path, index=False, encoding="utf-8")
+    documents_path = os.path.join(out_dir, "documents.csv")
+    documents_export.to_csv(documents_path, index=False, encoding="utf-8")
+    written["documents"] = documents_path
 
     # -------------------------
-    # Authors & AUTHORED edges
+    # Authors
     # -------------------------
     author_rows: List[Dict[str, str]] = []
-    authored_rows: List[Dict[str, str]] = []
+
+    for _, row in df.iterrows():
+        for author_name in split_authors(row.get("authors", "")):
+            author_id = make_stable_id("AUTHOR", author_name)
+            author_rows.append({
+                "author_id": author_id,
+                "name": author_name,
+            })
+
+    authors_df = pd.DataFrame(author_rows).drop_duplicates(subset=["author_id"])
+    authors_path = os.path.join(out_dir, "authors.csv")
+    authors_df.to_csv(authors_path, index=False, encoding="utf-8")
+    written["authors"] = authors_path
+
+    # -------------------------
+    # Journals
+    # -------------------------
+    journal_rows: List[Dict[str, str]] = []
+
+    for _, row in df.iterrows():
+        journal_name = safe_str(row.get("journal_name", "")).strip()
+        if not journal_name:
+            continue
+
+        journal_id = make_stable_id("JOURNAL", journal_name)
+        journal_rows.append({
+            "journal_id": journal_id,
+            "name": journal_name,
+            "issn": safe_str(row.get("issn", "")),
+            "eissn": safe_str(row.get("eissn", "")),
+        })
+
+    journals_df = pd.DataFrame(journal_rows).drop_duplicates(subset=["journal_id"])
+    journals_path = os.path.join(out_dir, "journals.csv")
+    journals_df.to_csv(journals_path, index=False, encoding="utf-8")
+    written["journals"] = journals_path
+
+    # -------------------------
+    # RankingBodies (VHB and ABDC - manually created)
+    # -------------------------
+    ranking_bodies = [
+        {"ranking_body_id": "VHB", "name": "VHB"},
+        {"ranking_body_id": "ABDC", "name": "ABDC"},
+    ]
+    ranking_bodies_df = pd.DataFrame(ranking_bodies)
+    ranking_bodies_path = os.path.join(out_dir, "ranking_bodies.csv")
+    ranking_bodies_df.to_csv(ranking_bodies_path, index=False, encoding="utf-8")
+    written["ranking_bodies"] = ranking_bodies_path
+
+    # -------------------------
+    # Rankings
+    # -------------------------
+    ranking_rows: List[Dict[str, str]] = []
+
+    for _, row in df.iterrows():
+        # VHB Ranking
+        vhb_value = safe_str(row.get("vhbRanking", "")).strip()
+        if vhb_value:
+            ranking_id = f"RANKING_VHB_{vhb_value}"
+            ranking_rows.append({
+                "ranking_id": ranking_id,
+                "value": vhb_value,
+                "body": "VHB",
+            })
+
+        # ABDC Ranking
+        abdc_value = safe_str(row.get("abdcRanking", "")).strip()
+        if abdc_value:
+            ranking_id = f"RANKING_ABDC_{abdc_value}"
+            ranking_rows.append({
+                "ranking_id": ranking_id,
+                "value": abdc_value,
+                "body": "ABDC",
+            })
+
+    rankings_df = pd.DataFrame(ranking_rows).drop_duplicates(subset=["ranking_id"])
+    rankings_path = os.path.join(out_dir, "rankings.csv")
+    rankings_df.to_csv(rankings_path, index=False, encoding="utf-8")
+    written["rankings"] = rankings_path
+
+    # -------------------------
+    # Years
+    # -------------------------
+    year_rows: List[Dict[str, str]] = []
+
+    for _, row in df.iterrows():
+        year = extract_year(row.get("date", ""))
+        if year:
+            year_rows.append({
+                "year_id": f"YEAR_{year}",
+                "year": year,
+            })
+
+    years_df = pd.DataFrame(year_rows).drop_duplicates(subset=["year_id"])
+    years_path = os.path.join(out_dir, "years.csv")
+    years_df.to_csv(years_path, index=False, encoding="utf-8")
+    written["years"] = years_path
+
+    # =========================================================
+    # RELATIONSHIPS
+    # =========================================================
+
+    # -------------------------
+    # HAS_AUTHOR (Document -> Author)
+    # -------------------------
+    has_author_rows: List[Dict[str, str]] = []
 
     for _, row in df.iterrows():
         doi = safe_str(row.get("doi", "")).strip()
@@ -248,89 +388,210 @@ def export_neo4j_csvs(
 
         for author_name in split_authors(row.get("authors", "")):
             author_id = make_stable_id("AUTHOR", author_name)
+            has_author_rows.append({
+                "document_id": doi,
+                "author_id": author_id,
+            })
 
-            author_rows.append(
-                {
-                    "author_id": author_id,
-                    "name": author_name,
-                }
-            )
-
-            authored_rows.append(
-                {
-                    "author_id": author_id,
-                    "paper_id": doi,
-                }
-            )
-
-    authors_df = pd.DataFrame(author_rows).drop_duplicates(subset=["author_id"])
-    authored_df = pd.DataFrame(authored_rows).drop_duplicates()
-
-    authors_path = os.path.join(out_dir, "authors.csv")
-    authored_path = os.path.join(out_dir, "authored.csv")
-
-    authors_df.to_csv(authors_path, index=False, encoding="utf-8")
-    authored_df.to_csv(authored_path, index=False, encoding="utf-8")
-
-    written = {
-        "papers": papers_path,
-        "authors": authors_path,
-        "authored": authored_path,
-    }
+    has_author_df = pd.DataFrame(has_author_rows).drop_duplicates()
+    has_author_path = os.path.join(out_dir, "has_author.csv")
+    has_author_df.to_csv(has_author_path, index=False, encoding="utf-8")
+    written["has_author"] = has_author_path
 
     # -------------------------
-    # Keywords & HAS_KEYWORD edges (optional)
+    # PUBLISHED_IN (Document -> Journal)
     # -------------------------
-    if export_keywords and ("sources" in df.columns):
-        keyword_rows: List[Dict[str, str]] = []
-        has_keyword_rows: List[Dict[str, str]] = []
+    published_in_rows: List[Dict[str, str]] = []
 
-        for _, row in df.iterrows():
-            doi = safe_str(row.get("doi", "")).strip()
-            if not doi:
-                continue
+    for _, row in df.iterrows():
+        doi = safe_str(row.get("doi", "")).strip()
+        journal_name = safe_str(row.get("journal_name", "")).strip()
+        if not doi or not journal_name:
+            continue
 
-            raw_sources = row.get("sources", "")
-            for kw in split_keywords(raw_sources):
-                kw_id = make_stable_id("KEYWORD", kw)
+        journal_id = make_stable_id("JOURNAL", journal_name)
+        published_in_rows.append({
+            "document_id": doi,
+            "journal_id": journal_id,
+        })
 
-                keyword_rows.append(
-                    {
-                        "keyword_id": kw_id,
-                        "name": kw,
-                    }
-                )
-
-                has_keyword_rows.append(
-                    {
-                        "paper_id": doi,
-                        "keyword_id": kw_id,
-                    }
-                )
-
-        keywords_df = pd.DataFrame(keyword_rows).drop_duplicates(subset=["keyword_id"])
-        has_keyword_df = pd.DataFrame(has_keyword_rows).drop_duplicates()
-
-        keywords_path = os.path.join(out_dir, "keywords.csv")
-        has_keyword_path = os.path.join(out_dir, "has_keyword.csv")
-
-        keywords_df.to_csv(keywords_path, index=False, encoding="utf-8")
-        has_keyword_df.to_csv(has_keyword_path, index=False, encoding="utf-8")
-
-        written["keywords"] = keywords_path
-        written["has_keyword"] = has_keyword_path
+    published_in_df = pd.DataFrame(published_in_rows).drop_duplicates()
+    published_in_path = os.path.join(out_dir, "published_in.csv")
+    published_in_df.to_csv(published_in_path, index=False, encoding="utf-8")
+    written["published_in"] = published_in_path
 
     # -------------------------
-    # Print summary
+    # HAS_RATING (Journal -> Ranking)
     # -------------------------
+    has_rating_rows: List[Dict[str, str]] = []
+
+    for _, row in df.iterrows():
+        journal_name = safe_str(row.get("journal_name", "")).strip()
+        if not journal_name:
+            continue
+
+        journal_id = make_stable_id("JOURNAL", journal_name)
+
+        # VHB Rating
+        vhb_value = safe_str(row.get("vhbRanking", "")).strip()
+        if vhb_value:
+            has_rating_rows.append({
+                "journal_id": journal_id,
+                "ranking_id": f"RANKING_VHB_{vhb_value}",
+            })
+
+        # ABDC Rating
+        abdc_value = safe_str(row.get("abdcRanking", "")).strip()
+        if abdc_value:
+            has_rating_rows.append({
+                "journal_id": journal_id,
+                "ranking_id": f"RANKING_ABDC_{abdc_value}",
+            })
+
+    has_rating_df = pd.DataFrame(has_rating_rows).drop_duplicates()
+    has_rating_path = os.path.join(out_dir, "has_rating.csv")
+    has_rating_df.to_csv(has_rating_path, index=False, encoding="utf-8")
+    written["has_rating"] = has_rating_path
+
+    # -------------------------
+    # ISSUED_BY (Ranking -> RankingBody)
+    # -------------------------
+    issued_by_rows: List[Dict[str, str]] = []
+
+    for _, row in rankings_df.iterrows():
+        ranking_id = row["ranking_id"]
+        body = row["body"]
+        issued_by_rows.append({
+            "ranking_id": ranking_id,
+            "ranking_body_id": body,
+        })
+
+    issued_by_df = pd.DataFrame(issued_by_rows).drop_duplicates()
+    issued_by_path = os.path.join(out_dir, "issued_by.csv")
+    issued_by_df.to_csv(issued_by_path, index=False, encoding="utf-8")
+    written["issued_by"] = issued_by_path
+
+    # -------------------------
+    # COLLABORATED_WITH (Author -> Author)
+    # Co-authors on the same document
+    # -------------------------
+    collaborated_rows: List[Dict[str, str]] = []
+
+    for _, row in df.iterrows():
+        authors = split_authors(row.get("authors", ""))
+        if len(authors) < 2:
+            continue
+
+        # Create pairs of co-authors
+        for i, author1 in enumerate(authors):
+            for author2 in authors[i+1:]:
+                id1 = make_stable_id("AUTHOR", author1)
+                id2 = make_stable_id("AUTHOR", author2)
+                # Store in consistent order to avoid duplicates
+                if id1 < id2:
+                    collaborated_rows.append({
+                        "author_id_1": id1,
+                        "author_id_2": id2,
+                    })
+                else:
+                    collaborated_rows.append({
+                        "author_id_1": id2,
+                        "author_id_2": id1,
+                    })
+
+    collaborated_df = pd.DataFrame(collaborated_rows).drop_duplicates()
+    collaborated_path = os.path.join(out_dir, "collaborated_with.csv")
+    collaborated_df.to_csv(collaborated_path, index=False, encoding="utf-8")
+    written["collaborated_with"] = collaborated_path
+
+    # -------------------------
+    # SAME_YEAR_AS (Document -> Document)
+    # Documents published in the same year
+    # -------------------------
+    # Group documents by year
+    docs_by_year: Dict[str, List[str]] = {}
+    for _, row in df.iterrows():
+        doi = safe_str(row.get("doi", "")).strip()
+        year = extract_year(row.get("date", ""))
+        if doi and year:
+            if year not in docs_by_year:
+                docs_by_year[year] = []
+            docs_by_year[year].append(doi)
+
+    same_year_rows: List[Dict[str, str]] = []
+    for year, docs in docs_by_year.items():
+        if len(docs) < 2:
+            continue
+        for i, doc1 in enumerate(docs):
+            for doc2 in docs[i+1:]:
+                # Store in consistent order
+                if doc1 < doc2:
+                    same_year_rows.append({
+                        "document_id_1": doc1,
+                        "document_id_2": doc2,
+                    })
+                else:
+                    same_year_rows.append({
+                        "document_id_1": doc2,
+                        "document_id_2": doc1,
+                    })
+
+    same_year_df = pd.DataFrame(same_year_rows).drop_duplicates()
+    same_year_path = os.path.join(out_dir, "same_year_as.csv")
+    same_year_df.to_csv(same_year_path, index=False, encoding="utf-8")
+    written["same_year_as"] = same_year_path
+
+    # -------------------------
+    # IS_VALID_IN_YEAR (Ranking -> Year)
+    # Link rankings to the years of documents that have them
+    # -------------------------
+    valid_in_year_rows: List[Dict[str, str]] = []
+
+    for _, row in df.iterrows():
+        year = extract_year(row.get("date", ""))
+        if not year:
+            continue
+
+        year_id = f"YEAR_{year}"
+
+        vhb_value = safe_str(row.get("vhbRanking", "")).strip()
+        if vhb_value:
+            valid_in_year_rows.append({
+                "ranking_id": f"RANKING_VHB_{vhb_value}",
+                "year_id": year_id,
+            })
+
+        abdc_value = safe_str(row.get("abdcRanking", "")).strip()
+        if abdc_value:
+            valid_in_year_rows.append({
+                "ranking_id": f"RANKING_ABDC_{abdc_value}",
+                "year_id": year_id,
+            })
+
+    valid_in_year_df = pd.DataFrame(valid_in_year_rows).drop_duplicates()
+    valid_in_year_path = os.path.join(out_dir, "is_valid_in_year.csv")
+    valid_in_year_df.to_csv(valid_in_year_path, index=False, encoding="utf-8")
+    written["is_valid_in_year"] = valid_in_year_path
+
+    # =========================================================
+    # PRINT SUMMARY
+    # =========================================================
     print("\n📤 Neo4j CSV Export complete:")
-    print(f" - papers:   {len(papers)}")
-    print(f" - authors:  {len(authors_df)}")
-    print(f" - authored: {len(authored_df)}")
-    if "keywords" in written:
-        # keywords_df / has_keyword_df exist in this branch
-        print(f" - keywords: {len(keywords_df)}")
-        print(f" - has_kw:   {len(has_keyword_df)}")
+    print("\n  Nodes:")
+    print(f"   - documents:      {len(documents_export)}")
+    print(f"   - authors:        {len(authors_df)}")
+    print(f"   - journals:       {len(journals_df)}")
+    print(f"   - ranking_bodies: {len(ranking_bodies_df)}")
+    print(f"   - rankings:       {len(rankings_df)}")
+    print(f"   - years:          {len(years_df)}")
+    print("\n  Relationships:")
+    print(f"   - has_author:         {len(has_author_df)}")
+    print(f"   - published_in:       {len(published_in_df)}")
+    print(f"   - has_rating:         {len(has_rating_df)}")
+    print(f"   - issued_by:          {len(issued_by_df)}")
+    print(f"   - collaborated_with:  {len(collaborated_df)}")
+    print(f"   - same_year_as:       {len(same_year_df)}")
+    print(f"   - is_valid_in_year:   {len(valid_in_year_df)}")
 
     print(f"\n📁 Output dir: {os.path.abspath(out_dir)}")
     return written
@@ -338,7 +599,8 @@ def export_neo4j_csvs(
 
 def write_neo4j_import_cypher(out_dir: str = "./neo4j/import") -> str:
     """
-    Optional helper: writes an import.cypher that you can run in Neo4j Browser.
+    Writes an import.cypher that you can run in Neo4j Browser.
+    Based on Knowledge Architect schema with all Nodes and Relationships.
 
     Assumes you mounted Neo4j /import to this directory.
     In Neo4j Browser you can run:
@@ -350,60 +612,119 @@ def write_neo4j_import_cypher(out_dir: str = "./neo4j/import") -> str:
     # Note: file:/// paths refer to Neo4j's import directory inside the container.
     # If you use docker-compose from earlier, ./neo4j/import -> /var/lib/neo4j/import.
     cypher = """
+// ==============================================================
+// Neo4j Import Script - Knowledge Architect Schema
+// ==============================================================
+
 // ------------------------------
 // Constraints / Indexes
 // ------------------------------
-CREATE CONSTRAINT paper_id_unique IF NOT EXISTS
-FOR (p:Paper) REQUIRE p.paper_id IS UNIQUE;
+CREATE CONSTRAINT document_id_unique IF NOT EXISTS
+FOR (d:Document) REQUIRE d.document_id IS UNIQUE;
 
 CREATE CONSTRAINT author_id_unique IF NOT EXISTS
 FOR (a:Author) REQUIRE a.author_id IS UNIQUE;
 
-CREATE CONSTRAINT keyword_id_unique IF NOT EXISTS
-FOR (k:Keyword) REQUIRE k.keyword_id IS UNIQUE;
+CREATE CONSTRAINT journal_id_unique IF NOT EXISTS
+FOR (j:Journal) REQUIRE j.journal_id IS UNIQUE;
+
+CREATE CONSTRAINT ranking_body_id_unique IF NOT EXISTS
+FOR (rb:RankingBody) REQUIRE rb.ranking_body_id IS UNIQUE;
+
+CREATE CONSTRAINT ranking_id_unique IF NOT EXISTS
+FOR (r:Ranking) REQUIRE r.ranking_id IS UNIQUE;
+
+CREATE CONSTRAINT year_id_unique IF NOT EXISTS
+FOR (y:Year) REQUIRE y.year_id IS UNIQUE;
 
 // ------------------------------
-// Nodes
+// NODES
 // ------------------------------
-LOAD CSV WITH HEADERS FROM 'file:///papers.csv' AS row
-MERGE (p:Paper {paper_id: row.paper_id})
+
+// Documents
+LOAD CSV WITH HEADERS FROM 'file:///documents.csv' AS row
+MERGE (d:Document {document_id: row.document_id})
 SET
-  p.title = row.title,
-  p.abstract = row.abstract,
-  p.date = row.date,
-  p.source = row.source,
-  p.vhbRanking = row.vhbRanking,
-  p.abdcRanking = row.abdcRanking,
-  p.journal_name = row.journal_name,
-  p.doi = row.doi,
-  p.url = row.url,
-  p.citations = row.citations,
-  p.journal_quartile = row.journal_quartile,
-  p.issn = row.issn,
-  p.eissn = row.eissn,
-  p.source_count = row.source_count,
-  p.sources = row.sources;
+  d.title = row.title,
+  d.abstract = row.abstract,
+  d.doi = row.doi,
+  d.url = row.url;
 
+// Authors
 LOAD CSV WITH HEADERS FROM 'file:///authors.csv' AS row
 MERGE (a:Author {author_id: row.author_id})
 SET a.name = row.name;
 
-LOAD CSV WITH HEADERS FROM 'file:///keywords.csv' AS row
-MERGE (k:Keyword {keyword_id: row.keyword_id})
-SET k.name = row.name;
+// Journals
+LOAD CSV WITH HEADERS FROM 'file:///journals.csv' AS row
+MERGE (j:Journal {journal_id: row.journal_id})
+SET
+  j.name = row.name,
+  j.issn = row.issn,
+  j.eissn = row.eissn;
+
+// RankingBodies
+LOAD CSV WITH HEADERS FROM 'file:///ranking_bodies.csv' AS row
+MERGE (rb:RankingBody {ranking_body_id: row.ranking_body_id})
+SET rb.name = row.name;
+
+// Rankings
+LOAD CSV WITH HEADERS FROM 'file:///rankings.csv' AS row
+MERGE (r:Ranking {ranking_id: row.ranking_id})
+SET
+  r.value = row.value,
+  r.body = row.body;
+
+// Years
+LOAD CSV WITH HEADERS FROM 'file:///years.csv' AS row
+MERGE (y:Year {year_id: row.year_id})
+SET y.year = row.year;
 
 // ------------------------------
-// Relationships
+// RELATIONSHIPS
 // ------------------------------
-LOAD CSV WITH HEADERS FROM 'file:///authored.csv' AS row
+
+// HAS_AUTHOR (Document -> Author)
+LOAD CSV WITH HEADERS FROM 'file:///has_author.csv' AS row
+MATCH (d:Document {document_id: row.document_id})
 MATCH (a:Author {author_id: row.author_id})
-MATCH (p:Paper  {paper_id: row.paper_id})
-MERGE (a)-[:AUTHORED]->(p);
+MERGE (d)-[:HAS_AUTHOR]->(a);
 
-LOAD CSV WITH HEADERS FROM 'file:///has_keyword.csv' AS row
-MATCH (p:Paper  {paper_id: row.paper_id})
-MATCH (k:Keyword {keyword_id: row.keyword_id})
-MERGE (p)-[:HAS_KEYWORD]->(k);
+// PUBLISHED_IN (Document -> Journal)
+LOAD CSV WITH HEADERS FROM 'file:///published_in.csv' AS row
+MATCH (d:Document {document_id: row.document_id})
+MATCH (j:Journal {journal_id: row.journal_id})
+MERGE (d)-[:PUBLISHED_IN]->(j);
+
+// HAS_RATING (Journal -> Ranking)
+LOAD CSV WITH HEADERS FROM 'file:///has_rating.csv' AS row
+MATCH (j:Journal {journal_id: row.journal_id})
+MATCH (r:Ranking {ranking_id: row.ranking_id})
+MERGE (j)-[:HAS_RATING]->(r);
+
+// ISSUED_BY (Ranking -> RankingBody)
+LOAD CSV WITH HEADERS FROM 'file:///issued_by.csv' AS row
+MATCH (r:Ranking {ranking_id: row.ranking_id})
+MATCH (rb:RankingBody {ranking_body_id: row.ranking_body_id})
+MERGE (r)-[:ISSUED_BY]->(rb);
+
+// COLLABORATED_WITH (Author -> Author)
+LOAD CSV WITH HEADERS FROM 'file:///collaborated_with.csv' AS row
+MATCH (a1:Author {author_id: row.author_id_1})
+MATCH (a2:Author {author_id: row.author_id_2})
+MERGE (a1)-[:COLLABORATED_WITH]->(a2);
+
+// SAME_YEAR_AS (Document -> Document)
+LOAD CSV WITH HEADERS FROM 'file:///same_year_as.csv' AS row
+MATCH (d1:Document {document_id: row.document_id_1})
+MATCH (d2:Document {document_id: row.document_id_2})
+MERGE (d1)-[:SAME_YEAR_AS]->(d2);
+
+// IS_VALID_IN_YEAR (Ranking -> Year)
+LOAD CSV WITH HEADERS FROM 'file:///is_valid_in_year.csv' AS row
+MATCH (r:Ranking {ranking_id: row.ranking_id})
+MATCH (y:Year {year_id: row.year_id})
+MERGE (r)-[:IS_VALID_IN_YEAR]->(y);
 """.strip()
 
     with open(cypher_path, "w", encoding="utf-8") as f:

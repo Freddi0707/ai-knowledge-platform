@@ -198,4 +198,4 @@ site/
 # Uncomment the line below if you don't want to commit example Excel files
 # *.xlsx
 # *.xls
-# *.csv
+# *.csv.claude/
