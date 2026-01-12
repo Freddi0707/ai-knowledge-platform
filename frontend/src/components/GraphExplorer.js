@@ -48,7 +48,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
         const response = await fetch(`${API_BASE}/api/semantic-similarities`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ threshold: 0.5, max_per_paper: 3 })
+          body: JSON.stringify({ threshold: 0.3, max_per_paper: 3 })
         });
 
         if (response.ok) {
@@ -145,12 +145,24 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
     return Math.max(3, Math.min(15, 3 + Math.log(citations + 1) * 2));
   };
 
+  // Helper function to normalize DOI for comparison
+  const normalizeDoi = (doi) => {
+    if (!doi) return '';
+    // Remove common prefixes to get just the DOI identifier
+    return doi.replace(/^https?:\/\/doi\.org\//i, '').replace(/^doi:/i, '').trim();
+  };
+
   // Graph-Daten generieren: Papers als Knoten, relationale + semantische Verbindungen
   const graphData = useMemo(() => {
-    // Create DOI to index mapping for semantic similarities
+    // Create DOI to index mapping for semantic similarities (normalized)
     const doiToIndex = {};
     filteredPapers.forEach((paper, idx) => {
-      if (paper.doi) doiToIndex[paper.doi] = idx;
+      if (paper.doi) {
+        const normalizedDoi = normalizeDoi(paper.doi);
+        doiToIndex[normalizedDoi] = idx;
+        // Also map the full URL version
+        doiToIndex[paper.doi] = idx;
+      }
     });
 
     const nodes = filteredPapers.map((paper, idx) => ({
@@ -211,8 +223,9 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
 
     // 2. Semantische Verbindungen (aus Vector-Embeddings)
     semanticSimilarities.forEach(sim => {
-      const sourceIdx = doiToIndex[sim.source_doi];
-      const targetIdx = doiToIndex[sim.target_doi];
+      // Try both normalized and original DOI formats
+      const sourceIdx = doiToIndex[sim.source_doi] ?? doiToIndex[normalizeDoi(sim.source_doi)];
+      const targetIdx = doiToIndex[sim.target_doi] ?? doiToIndex[normalizeDoi(sim.target_doi)];
 
       if (sourceIdx !== undefined && targetIdx !== undefined) {
         const linkId = `semantic-${sourceIdx}-${targetIdx}`;
