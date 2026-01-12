@@ -1,15 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp } from 'lucide-react';
-
-// API Configuration - uses environment variable with fallback
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-// Epistemische UI-Komponenten
 import TransparencyPanel from './components/TransparencyPanel';
 import ProportionalityPanel from './components/ProportionalityPanel';
 import SourceCard from './components/SourceCard';
 import ContextPanel from './components/ContextPanel';
 import GraphExplorer from './components/GraphExplorer';
+
+// API Configuration - uses environment variable with fallback
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 // ========== DUMMY-DATEN FÜR DESIGN-PREVIEW ==========
 
@@ -130,6 +128,60 @@ const DEMO_RESULTS = {
   ]
 };
 
+// ========== CITATION COMPONENT ==========
+
+function AnswerWithCitations({ answer, sources = [] }) {
+  const [hoveredCitation, setHoveredCitation] = useState(null);
+
+  // Parse answer and replace [1], [2], etc. with interactive elements
+  const renderAnswerWithCitations = () => {
+    if (!answer) return null;
+
+    // Split by citation pattern [number]
+    const parts = answer.split(/(\[\d+\])/g);
+
+    return parts.map((part, index) => {
+      const match = part.match(/^\[(\d+)\]$/);
+      if (match) {
+        const citationNum = parseInt(match[1]);
+        const source = sources[citationNum - 1];
+
+        if (source) {
+          return (
+            <span
+              key={index}
+              className="relative inline-block"
+              onMouseEnter={() => setHoveredCitation(citationNum)}
+              onMouseLeave={() => setHoveredCitation(null)}
+            >
+              <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-semibold bg-indigo-100 text-indigo-700 rounded cursor-pointer hover:bg-indigo-200 transition-colors mx-0.5">
+                {citationNum}
+              </span>
+              {hoveredCitation === citationNum && (
+                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-72 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-xl z-50">
+                  <p className="font-semibold mb-1 line-clamp-2">{source.title}</p>
+                  <p className="text-gray-300 text-xs">
+                    {source.authors?.split(';')[0]?.trim()}, {source.date?.substring(0, 4)}
+                  </p>
+                  {source.journal_name && (
+                    <p className="text-gray-400 text-xs italic mt-1">{source.journal_name}</p>
+                  )}
+                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                    <div className="border-4 border-transparent border-t-gray-900"></div>
+                  </div>
+                </div>
+              )}
+            </span>
+          );
+        }
+      }
+      return <span key={index}>{part}</span>;
+    });
+  };
+
+  return <>{renderAnswerWithCitations()}</>;
+}
+
 // ========== HAUPTKOMPONENTE ==========
 
 export default function HybridRAGInterface() {
@@ -147,6 +199,19 @@ export default function HybridRAGInterface() {
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState(null);
   const [showResults, setShowResults] = useState(false);
+  const [searchTime, setSearchTime] = useState(0);
+
+  // Timer for search progress
+  useEffect(() => {
+    let interval;
+    if (searching) {
+      setSearchTime(0);
+      interval = setInterval(() => {
+        setSearchTime(t => t + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [searching]);
 
   // UI State
   const [uploadExpanded, setUploadExpanded] = useState(true);
@@ -183,7 +248,8 @@ export default function HybridRAGInterface() {
       }
 
       const uploadResult = await uploadResponse.json();
-      setPapers(DEMO_PAPERS); // Fallback zu Demo
+      // Use real papers from backend, fallback to demo if not available
+      setPapers(uploadResult.papers || DEMO_PAPERS);
       setPapersCount(uploadResult.papers_count || 0);
       setUploadStatus('ready');
       setUploadProgress(`${uploadResult.papers_count} Papers verarbeitet`);
@@ -315,7 +381,7 @@ export default function HybridRAGInterface() {
           {/* Graph Explorer */}
           {papers.length > 0 ? (
             <div className="flex-1 overflow-hidden p-4">
-              <GraphExplorer papers={papers} />
+              <GraphExplorer papers={papers} highlightedSources={results?.sources} />
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-400">
@@ -396,7 +462,16 @@ export default function HybridRAGInterface() {
               <div className="h-full flex items-center justify-center">
                 <div className="text-center">
                   <Loader className="w-8 h-8 mx-auto mb-3 animate-spin text-indigo-600" />
-                  <p className="text-sm text-gray-500">Suche in Knowledge Graph...</p>
+                  <p className="text-sm text-gray-500 mb-2">
+                    {searchTime < 5 ? 'Suche in Knowledge Graph...' :
+                     searchTime < 15 ? 'Generiere Antwort mit LLM...' :
+                     searchTime < 30 ? 'Analysiere Quellen...' :
+                     'Bitte warten, komplexe Anfrage...'}
+                  </p>
+                  <p className="text-xs text-gray-400">{searchTime}s</p>
+                  {searchTime > 20 && (
+                    <p className="text-xs text-amber-500 mt-2">LLM-Antworten können bis zu 2 Minuten dauern</p>
+                  )}
                 </div>
               </div>
             )}
@@ -414,7 +489,7 @@ export default function HybridRAGInterface() {
                     )}
                   </div>
                   <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 leading-relaxed">
-                    {results.answer}
+                    <AnswerWithCitations answer={results.answer} sources={results.sources} />
                   </div>
                 </div>
 

@@ -221,10 +221,14 @@ def upload_file():
             llm_model="llama3.2"
         )
 
+        # Convert DataFrame to list of dicts for frontend
+        papers_data = df.to_dict('records')
+
         return jsonify({
             'success': True,
             'message': 'File processed successfully',
             'papers_count': len(df),
+            'papers': papers_data,
             'status': 'ready'
         })
 

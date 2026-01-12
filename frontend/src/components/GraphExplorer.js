@@ -10,7 +10,7 @@ import ConnectionModal from './ConnectionModal';
  * Props:
  * - papers: array - Alle Papers aus dem Upload
  */
-export default function GraphExplorer({ papers = [] }) {
+export default function GraphExplorer({ papers = [], highlightedSources = null }) {
   const graphRef = useRef();
 
   // State
@@ -24,10 +24,24 @@ export default function GraphExplorer({ papers = [] }) {
   const [selectedPaper, setSelectedPaper] = useState(null);
   const [viewMode, setViewMode] = useState('graph'); // 'graph' or 'list'
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [showOnlyHighlighted, setShowOnlyHighlighted] = useState(false);
+
+  // Get DOIs of highlighted sources for filtering
+  const highlightedDOIs = useMemo(() => {
+    if (!highlightedSources) return new Set();
+    return new Set(highlightedSources.map(s => s.doi).filter(Boolean));
+  }, [highlightedSources]);
 
   // Papers filtern basierend auf Filtern
   const filteredPapers = useMemo(() => {
     return papers.filter(paper => {
+      // Highlighted Sources Filter (wenn aktiv, nur diese zeigen)
+      if (showOnlyHighlighted && highlightedDOIs.size > 0) {
+        if (!highlightedDOIs.has(paper.doi)) {
+          return false;
+        }
+      }
+
       // Jahr Filter
       if (paper.date) {
         const year = parseInt(paper.date.substring(0, 4));
@@ -68,7 +82,7 @@ export default function GraphExplorer({ papers = [] }) {
 
       return true;
     });
-  }, [papers, filters]);
+  }, [papers, filters, showOnlyHighlighted, highlightedDOIs]);
 
   // Hilfsfunktion: Erstelle Citation-Style Label (z.B. "Verhoef et al., 2021")
   const getCitationLabel = (paper) => {
@@ -185,6 +199,20 @@ export default function GraphExplorer({ papers = [] }) {
           </p>
         </div>
         <div className="flex items-center space-x-2">
+          {/* Show Only Sources Toggle */}
+          {highlightedSources && highlightedSources.length > 0 && (
+            <button
+              onClick={() => setShowOnlyHighlighted(!showOnlyHighlighted)}
+              className={`flex items-center px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                showOnlyHighlighted
+                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+              title="Nur Quellen der letzten Antwort anzeigen"
+            >
+              {showOnlyHighlighted ? `Quellen (${highlightedSources.length})` : 'Nur Quellen'}
+            </button>
+          )}
           {/* View Toggle */}
           <div className="flex bg-gray-100 rounded-lg p-0.5">
             <button
@@ -277,11 +305,16 @@ export default function GraphExplorer({ papers = [] }) {
                   onNodeClick={handleNodeClick}
                   onLinkClick={handleLinkClick}
                   linkDirectionalParticles={0}
-                  cooldownTicks={200}
-                  d3VelocityDecay={0.3}
-                  d3AlphaDecay={0.02}
-                  linkDistance={80}
+                  cooldownTicks={300}
+                  d3VelocityDecay={0.2}
+                  d3AlphaDecay={0.01}
+                  d3AlphaMin={0.001}
+                  linkDistance={150}
                   nodeRelSize={4}
+                  d3Force={(d3) => {
+                    d3('charge').strength(-300);
+                    d3('collision', null);
+                  }}
                   onEngineStop={() => graphRef.current?.zoomToFit(400, 80)}
                   nodeCanvasObject={(node, ctx, globalScale) => {
                     const size = node.size || 4;

@@ -8,7 +8,7 @@ import os
 import shutil
 from sentence_transformers import SentenceTransformer
 from chromadb import PersistentClient
-from langchain_community.llms import Ollama
+from langchain_ollama import OllamaLLM
 from langchain_community.graphs import Neo4jGraph
 from langchain_community.chains.graph_qa.cypher import GraphCypherQAChain
 from langchain_core.prompts import PromptTemplate
@@ -109,10 +109,11 @@ class HybridSearchEngine:
         print("\n🚀 Initializing Hybrid Search Engine...")
 
         # LLM - Using faster model by default
-        self.llm = Ollama(
+        self.llm = OllamaLLM(
             model=llm_model,
             temperature=0.7,
-            num_predict=512  # Limit response length for speed
+            num_predict=512,  # Limit response length for speed
+            timeout=120  # 2 minutes timeout
         )
         print(f"✅ LLM loaded ({llm_model})")
 
@@ -370,8 +371,13 @@ Cypher Query:"""
 
         print(f"✅ Found {len(vector_results['documents'][0])} papers (score: {best_score:.3f})")
 
-        # Extract context
-        semantic_context = "\n\n".join(vector_results["documents"][0])
+        # Extract context with numbered citations
+        docs = vector_results["documents"][0]
+        metas = vector_results["metadatas"][0]
+        semantic_context = "\n\n".join([
+            f"[{i+1}] {metas[i].get('title', 'Unknown')} ({metas[i].get('authors', 'Unknown').split(';')[0].split(',')[0]}, {metas[i].get('date', '')[:4]}): {doc}"
+            for i, doc in enumerate(docs)
+        ])
 
         # Check if graph needed
         use_graph = self.should_use_graph(query)
@@ -400,23 +406,37 @@ Cypher Query:"""
         print("\n🤖 Generating answer (this may take 10-30 seconds)...")
 
         if use_graph and graph_context and "No results found" not in graph_context:
-            prompt = f"""Answer using both sources:
+            prompt = f"""Answer the question using the numbered sources below. Use inline citations like [1], [2] to reference specific papers.
 
-📚 PAPERS: {semantic_context}
-🔗 GRAPH: {graph_context}
+SOURCES:
+{semantic_context}
+
+GRAPH CONTEXT:
+{graph_context}
 
 QUESTION: {query}
 
-Provide a clear, concise answer (2-3 paragraphs max) citing specific papers.
+INSTRUCTIONS:
+- Write 2-3 paragraphs maximum
+- Use [1], [2], [3] etc. to cite sources inline
+- Only cite sources that directly support your statements
+- Be concise and factual
+
 ANSWER:"""
         else:
-            prompt = f"""Answer based on these papers:
+            prompt = f"""Answer the question using the numbered sources below. Use inline citations like [1], [2] to reference specific papers.
 
+SOURCES:
 {semantic_context}
 
 QUESTION: {query}
 
-Provide a clear, concise answer (2-3 paragraphs max).
+INSTRUCTIONS:
+- Write 2-3 paragraphs maximum
+- Use [1], [2], [3] etc. to cite sources inline
+- Only cite sources that directly support your statements
+- Be concise and factual
+
 ANSWER:"""
 
         try:
