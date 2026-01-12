@@ -25,6 +25,8 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
   const [viewMode, setViewMode] = useState('graph'); // 'graph' or 'list'
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showOnlyHighlighted, setShowOnlyHighlighted] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [focusedNode, setFocusedNode] = useState(null); // For focus mode
 
   // Get DOIs of highlighted sources for filtering
   const highlightedDOIs = useMemo(() => {
@@ -147,25 +149,59 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
         // Verbindung erstellen wenn gemeinsame Eigenschaften
         if (sharedAuthors.length > 0 || sharedKeywords.length > 0) {
           const linkId = `paper-${i}__paper-${j}`;
+          // Berechne Verbindungsstärke (Autoren zählen mehr als Keywords)
+          const strength = sharedAuthors.length * 2 + sharedKeywords.length * 0.5;
+
           links.push({
             source: `paper-${i}`,
             target: `paper-${j}`,
             id: linkId,
+            strength: strength,
             // Dicke basierend auf Stärke der Verbindung
-            width: Math.min(5, 1 + sharedAuthors.length * 1.5 + sharedKeywords.length * 0.5)
+            width: Math.min(5, 1 + strength * 0.8)
           });
 
           linkDetails[linkId] = {
             source: paperA,
             target: paperB,
             sharedAuthors,
-            sharedKeywords
+            sharedKeywords,
+            strength
           };
         }
       }
     }
 
-    return { nodes, links, linkDetails };
+    // Top-3 Verbindungen pro Paper behalten
+    const MAX_LINKS_PER_NODE = 3;
+    const nodeLinkCount = {};
+
+    // Sortiere Links nach Stärke (stärkste zuerst)
+    links.sort((a, b) => b.strength - a.strength);
+
+    // Filtere: Behalte Link nur wenn beide Nodes noch unter Limit sind
+    const filteredLinks = links.filter(link => {
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+
+      const sourceCount = nodeLinkCount[sourceId] || 0;
+      const targetCount = nodeLinkCount[targetId] || 0;
+
+      if (sourceCount < MAX_LINKS_PER_NODE && targetCount < MAX_LINKS_PER_NODE) {
+        nodeLinkCount[sourceId] = sourceCount + 1;
+        nodeLinkCount[targetId] = targetCount + 1;
+        return true;
+      }
+      return false;
+    });
+
+    // Berechne max Stärke für Normalisierung
+    const maxStrength = Math.max(...filteredLinks.map(l => l.strength), 1);
+    filteredLinks.forEach(link => {
+      link.normalizedStrength = link.strength / maxStrength;
+    });
+
+    return { nodes, links: filteredLinks, linkDetails, maxStrength, allLinksCount: links.length };
   }, [filteredPapers]);
 
   // Handlers
@@ -181,8 +217,31 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
   }, [graphData.linkDetails]);
 
   const handleNodeClick = useCallback((node) => {
+    // Toggle focus mode: click same node again to unfocus
+    if (focusedNode === node.id) {
+      setFocusedNode(null);
+    } else {
+      setFocusedNode(node.id);
+    }
     setSelectedPaper(node.paper);
+  }, [focusedNode]);
+
+  const handleBackgroundClick = useCallback(() => {
+    setFocusedNode(null);
   }, []);
+
+  // Get connected nodes for focus mode
+  const connectedNodes = useMemo(() => {
+    if (!focusedNode) return new Set();
+    const connected = new Set([focusedNode]);
+    graphData.links.forEach(link => {
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+      if (sourceId === focusedNode) connected.add(targetId);
+      if (targetId === focusedNode) connected.add(sourceId);
+    });
+    return connected;
+  }, [focusedNode, graphData.links]);
 
   const handleZoomIn = () => graphRef.current?.zoom(graphRef.current.zoom() * 1.5, 400);
   const handleZoomOut = () => graphRef.current?.zoom(graphRef.current.zoom() / 1.5, 400);
@@ -196,6 +255,11 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
           <h2 className="text-lg font-semibold text-gray-800">Knowledge Graph</h2>
           <p className="text-xs text-gray-500">
             {filteredPapers.length} Papers, {graphData.links.length} Verbindungen
+            {graphData.allLinksCount > graphData.links.length && (
+              <span className="text-gray-400 ml-1">
+                (Top-3 von {graphData.allLinksCount})
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -298,41 +362,91 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                   ref={graphRef}
                   graphData={graphData}
                   nodeLabel={(node) => node.label}
-                  nodeColor={(node) => node.color}
+                  nodeColor={(node) => {
+                    // Dim nodes not connected to focused node
+                    if (focusedNode && !connectedNodes.has(node.id)) {
+                      return 'rgba(200, 200, 200, 0.3)';
+                    }
+                    return node.color;
+                  }}
                   nodeVal={3}
-                  linkWidth={(link) => link.width || 1}
-                  linkColor={() => '#94a3b8'}
+                  // Kantendicke basierend auf Stärke
+                  linkWidth={(link) => {
+                    if (focusedNode) {
+                      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+                      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+                      if (sourceId === focusedNode || targetId === focusedNode) {
+                        return (link.width || 1) * 1.5; // Highlight connected links
+                      }
+                    }
+                    return link.width || 1;
+                  }}
+                  // Kantenfarbe: dim wenn nicht verbunden mit fokussiertem Node
+                  linkColor={(link) => {
+                    const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+                    const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+
+                    if (focusedNode) {
+                      if (sourceId === focusedNode || targetId === focusedNode) {
+                        return 'rgba(79, 70, 229, 0.8)'; // Indigo for connected
+                      }
+                      return 'rgba(200, 200, 200, 0.15)'; // Dim others
+                    }
+                    const alpha = 0.2 + (link.normalizedStrength || 0) * 0.6;
+                    return `rgba(100, 116, 139, ${alpha})`;
+                  }}
+                  // Kanten immer zeigen (wir haben schon Top-3 gefiltert)
+                  linkVisibility={() => true}
                   onNodeClick={handleNodeClick}
                   onLinkClick={handleLinkClick}
+                  onBackgroundClick={handleBackgroundClick}
+                  onZoom={({ k }) => setZoomLevel(k)}
                   linkDirectionalParticles={0}
                   cooldownTicks={300}
                   d3VelocityDecay={0.2}
                   d3AlphaDecay={0.01}
                   d3AlphaMin={0.001}
-                  linkDistance={150}
+                  // Distanz: starke Verbindungen = näher, schwache = weiter
+                  linkDistance={(link) => {
+                    const baseDistance = 200;
+                    const strength = link.normalizedStrength || 0.5;
+                    return baseDistance * (1.2 - strength * 0.8);
+                  }}
                   nodeRelSize={4}
                   d3Force={(d3) => {
-                    d3('charge').strength(-300);
+                    d3('charge').strength(-400);
                     d3('collision', null);
                   }}
                   onEngineStop={() => graphRef.current?.zoomToFit(400, 80)}
                   nodeCanvasObject={(node, ctx, globalScale) => {
                     const size = node.size || 4;
+                    const isDimmed = focusedNode && !connectedNodes.has(node.id);
+                    const isFocused = focusedNode === node.id;
+
                     ctx.beginPath();
-                    ctx.arc(node.x, node.y, size, 0, 2 * Math.PI);
-                    ctx.fillStyle = node.color;
+                    ctx.arc(node.x, node.y, isFocused ? size * 1.3 : size, 0, 2 * Math.PI);
+                    ctx.fillStyle = isDimmed ? 'rgba(200, 200, 200, 0.3)' : node.color;
                     ctx.fill();
-                    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-                    ctx.lineWidth = 1.5;
+
+                    // Ring for focused node
+                    if (isFocused) {
+                      ctx.strokeStyle = 'rgba(79, 70, 229, 0.9)';
+                      ctx.lineWidth = 3;
+                    } else {
+                      ctx.strokeStyle = isDimmed ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.8)';
+                      ctx.lineWidth = 1.5;
+                    }
                     ctx.stroke();
 
-                    if (globalScale > 1.2) {
+                    // Label: show if zoomed in OR if node is connected to focused
+                    const showLabel = globalScale > 1.2 || (focusedNode && connectedNodes.has(node.id));
+                    if (showLabel && !isDimmed) {
                       const label = node.label || '';
                       const fontSize = Math.max(10 / globalScale, 4);
-                      ctx.font = `${fontSize}px Sans-Serif`;
+                      ctx.font = `${isFocused ? 'bold ' : ''}${fontSize}px Sans-Serif`;
                       ctx.textAlign = 'center';
                       ctx.textBaseline = 'top';
-                      ctx.fillStyle = '#374151';
+                      ctx.fillStyle = isFocused ? '#4f46e5' : '#374151';
                       ctx.fillText(label, node.x, node.y + size + 2);
                     }
                   }}
@@ -415,12 +529,29 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
 
           {/* Info Bar - only in graph mode */}
           {viewMode === 'graph' && (
-            <div className="px-4 py-2 bg-blue-50 border-t flex items-center text-sm text-blue-700">
-              <Info className="w-4 h-4 mr-2" />
-              <span>
-                <strong>Klicke auf eine Verbindung</strong> um zu sehen, warum Papers zusammenhängen.
-                Klicke auf ein Paper für Details.
-              </span>
+            <div className="px-4 py-2 bg-blue-50 border-t flex items-center justify-between text-sm text-blue-700">
+              <div className="flex items-center">
+                <Info className="w-4 h-4 mr-2" />
+                {focusedNode ? (
+                  <span>
+                    <strong>Fokus-Modus:</strong> Nur verbundene Papers werden angezeigt.
+                    Klicke auf den Hintergrund oder denselben Node zum Zurücksetzen.
+                  </span>
+                ) : (
+                  <span>
+                    <strong>Klicke auf ein Paper</strong> um nur dessen Verbindungen zu sehen.
+                    Klicke auf eine Kante für Details.
+                  </span>
+                )}
+              </div>
+              {focusedNode && (
+                <button
+                  onClick={() => setFocusedNode(null)}
+                  className="px-2 py-1 bg-blue-100 hover:bg-blue-200 rounded text-xs font-medium"
+                >
+                  Fokus aufheben
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -559,11 +690,24 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
                   Verbindungsdicke zeigt die Anzahl gemeinsamer Autoren oder Themen.
+                  Es werden nur die <strong>Top-3 stärksten</strong> Verbindungen pro Paper angezeigt.
                 </p>
               </div>
 
+              {/* Interaction */}
+              <div className="bg-indigo-50 rounded-lg p-3">
+                <h4 className="font-medium text-indigo-800 mb-2">Interaktion</h4>
+                <ul className="text-xs text-indigo-700 space-y-1">
+                  <li><strong>Klick auf Paper:</strong> Fokus-Modus - zeigt nur verbundene Papers</li>
+                  <li><strong>Klick auf Kante:</strong> Zeigt warum Papers verbunden sind</li>
+                  <li><strong>Klick auf Hintergrund:</strong> Fokus aufheben</li>
+                  <li><strong>Mausrad:</strong> Zoom rein/raus</li>
+                  <li><strong>Ziehen:</strong> Graph verschieben</li>
+                </ul>
+              </div>
+
               {/* Knowledge Graph Info */}
-              <div className="bg-blue-50 rounded-lg p-3 mt-4">
+              <div className="bg-blue-50 rounded-lg p-3">
                 <h4 className="font-medium text-blue-800 mb-1">Was ist ein Knowledge Graph?</h4>
                 <p className="text-xs text-blue-700">
                   Ein Knowledge Graph verbindet Informationen über <strong>relationale Beziehungen</strong> -
