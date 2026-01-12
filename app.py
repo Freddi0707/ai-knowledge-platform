@@ -301,6 +301,78 @@ def health():
     return jsonify({'status': 'ok'})
 
 
+@app.route('/api/semantic-similarities', methods=['POST'])
+def get_semantic_similarities():
+    """
+    Calculate semantic similarities between papers using vector embeddings.
+    Returns pairwise similarities above a threshold.
+    """
+    global search_engine
+
+    if search_engine is None:
+        return jsonify({'error': 'Please upload a file first'}), 400
+
+    try:
+        data = request.json or {}
+        threshold = data.get('threshold', 0.5)  # Minimum similarity to return
+        max_per_paper = data.get('max_per_paper', 3)  # Max connections per paper
+
+        # Get all papers from the collection
+        collection = search_engine.collection
+        all_data = collection.get(include=["embeddings", "metadatas"])
+
+        if not all_data or not all_data['ids']:
+            return jsonify({'similarities': []})
+
+        ids = all_data['ids']
+        embeddings = all_data['embeddings']
+        metadatas = all_data['metadatas']
+
+        # Calculate pairwise cosine similarities
+        import numpy as np
+        embeddings_np = np.array(embeddings)
+
+        similarities = []
+        paper_counts = {}  # Track connections per paper
+
+        # Calculate all similarities first
+        all_pairs = []
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                # Cosine similarity (embeddings are already normalized)
+                sim = float(np.dot(embeddings_np[i], embeddings_np[j]))
+                if sim >= threshold:
+                    all_pairs.append({
+                        'source_doi': ids[i],
+                        'target_doi': ids[j],
+                        'similarity': sim,
+                        'source_title': metadatas[i].get('title', ''),
+                        'target_title': metadatas[j].get('title', '')
+                    })
+
+        # Sort by similarity (highest first)
+        all_pairs.sort(key=lambda x: x['similarity'], reverse=True)
+
+        # Filter to max_per_paper connections
+        for pair in all_pairs:
+            source_count = paper_counts.get(pair['source_doi'], 0)
+            target_count = paper_counts.get(pair['target_doi'], 0)
+
+            if source_count < max_per_paper and target_count < max_per_paper:
+                similarities.append(pair)
+                paper_counts[pair['source_doi']] = source_count + 1
+                paper_counts[pair['target_doi']] = target_count + 1
+
+        return jsonify({
+            'similarities': similarities,
+            'total_papers': len(ids)
+        })
+
+    except Exception as e:
+        print(f"Error calculating similarities: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print(f"""
 ╔══════════════════════════════════════════════════════════╗

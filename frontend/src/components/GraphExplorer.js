@@ -1,8 +1,10 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { ZoomIn, ZoomOut, Maximize2, Info, List, Network, HelpCircle, X } from 'lucide-react';
 import FilterSidebar from './FilterSidebar';
 import ConnectionModal from './ConnectionModal';
+
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 /**
  * GraphExplorer - Kombiniert Filter-Sidebar mit interaktivem Paper-Graph
@@ -27,12 +29,39 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
   const [showOnlyHighlighted, setShowOnlyHighlighted] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [focusedNode, setFocusedNode] = useState(null); // For focus mode
+  const [semanticSimilarities, setSemanticSimilarities] = useState([]);
+  const [showRelational, setShowRelational] = useState(true); // Show relational (Neo4j) edges
+  const [showSemantic, setShowSemantic] = useState(true); // Show semantic (Vector) edges
 
   // Get DOIs of highlighted sources for filtering
   const highlightedDOIs = useMemo(() => {
     if (!highlightedSources) return new Set();
     return new Set(highlightedSources.map(s => s.doi).filter(Boolean));
   }, [highlightedSources]);
+
+  // Fetch semantic similarities when papers are loaded
+  useEffect(() => {
+    const fetchSemanticSimilarities = async () => {
+      if (papers.length === 0) return;
+
+      try {
+        const response = await fetch(`${API_BASE}/api/semantic-similarities`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ threshold: 0.5, max_per_paper: 3 })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setSemanticSimilarities(data.similarities || []);
+        }
+      } catch (error) {
+        console.log('Semantic similarities not available:', error);
+      }
+    };
+
+    fetchSemanticSimilarities();
+  }, [papers]);
 
   // Papers filtern basierend auf Filtern
   const filteredPapers = useMemo(() => {
@@ -116,8 +145,14 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
     return Math.max(3, Math.min(15, 3 + Math.log(citations + 1) * 2));
   };
 
-  // Graph-Daten generieren: Nur Papers als Knoten, Verbindungen bei gemeinsamen Autoren/Keywords
+  // Graph-Daten generieren: Papers als Knoten, relationale + semantische Verbindungen
   const graphData = useMemo(() => {
+    // Create DOI to index mapping for semantic similarities
+    const doiToIndex = {};
+    filteredPapers.forEach((paper, idx) => {
+      if (paper.doi) doiToIndex[paper.doi] = idx;
+    });
+
     const nodes = filteredPapers.map((paper, idx) => ({
       id: `paper-${idx}`,
       label: getCitationLabel(paper),
@@ -127,10 +162,11 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
       citations: parseInt(paper.citations) || 0
     }));
 
-    const links = [];
+    const relationalLinks = [];
+    const semanticLinks = [];
     const linkDetails = {}; // Speichert Details für jede Verbindung
 
-    // Finde Verbindungen zwischen Papers
+    // 1. Relationale Verbindungen (gemeinsame Autoren/Keywords)
     for (let i = 0; i < filteredPapers.length; i++) {
       for (let j = i + 1; j < filteredPapers.length; j++) {
         const paperA = filteredPapers[i];
@@ -141,24 +177,23 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
         const authorsB = paperB.authors?.split(';').map(a => a.trim().replace(/\s*\(\d+\)/g, '')) || [];
         const sharedAuthors = authorsA.filter(a => authorsB.includes(a));
 
-        // Gemeinsame Keywords finden
-        const keywordsA = paperA.sources?.split(';').map(k => k.trim()) || [];
-        const keywordsB = paperB.sources?.split(';').map(k => k.trim()) || [];
+        // Gemeinsame Keywords finden (filter out generic sources like "Scopus")
+        const keywordsA = paperA.sources?.split(';').map(k => k.trim()).filter(k => k.toLowerCase() !== 'scopus') || [];
+        const keywordsB = paperB.sources?.split(';').map(k => k.trim()).filter(k => k.toLowerCase() !== 'scopus') || [];
         const sharedKeywords = keywordsA.filter(k => keywordsB.includes(k));
 
-        // Verbindung erstellen wenn gemeinsame Eigenschaften
-        if (sharedAuthors.length > 0 || sharedKeywords.length > 0) {
-          const linkId = `paper-${i}__paper-${j}`;
-          // Berechne Verbindungsstärke (Autoren zählen mehr als Keywords)
-          const strength = sharedAuthors.length * 2 + sharedKeywords.length * 0.5;
+        // Nur Autoren-basierte Verbindungen (nicht Keywords wie "Scopus")
+        if (sharedAuthors.length > 0) {
+          const linkId = `relational-${i}-${j}`;
+          const strength = sharedAuthors.length * 2;
 
-          links.push({
+          relationalLinks.push({
             source: `paper-${i}`,
             target: `paper-${j}`,
             id: linkId,
             strength: strength,
-            // Dicke basierend auf Stärke der Verbindung
-            width: Math.min(5, 1 + strength * 0.8)
+            width: Math.min(5, 1 + strength * 0.8),
+            type: 'relational' // Solid line
           });
 
           linkDetails[linkId] = {
@@ -166,43 +201,100 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
             target: paperB,
             sharedAuthors,
             sharedKeywords,
-            strength
+            strength,
+            type: 'relational',
+            reason: `Gemeinsame Autoren: ${sharedAuthors.join(', ')}`
           };
         }
       }
     }
 
-    // Top-3 Verbindungen pro Paper behalten
-    const MAX_LINKS_PER_NODE = 3;
-    const nodeLinkCount = {};
+    // 2. Semantische Verbindungen (aus Vector-Embeddings)
+    semanticSimilarities.forEach(sim => {
+      const sourceIdx = doiToIndex[sim.source_doi];
+      const targetIdx = doiToIndex[sim.target_doi];
 
-    // Sortiere Links nach Stärke (stärkste zuerst)
-    links.sort((a, b) => b.strength - a.strength);
+      if (sourceIdx !== undefined && targetIdx !== undefined) {
+        const linkId = `semantic-${sourceIdx}-${targetIdx}`;
 
-    // Filtere: Behalte Link nur wenn beide Nodes noch unter Limit sind
-    const filteredLinks = links.filter(link => {
-      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
-      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+        // Skip if there's already a relational link between these papers
+        const hasRelational = relationalLinks.some(l => {
+          const relSourceIdx = parseInt(l.source.replace('paper-', ''));
+          const relTargetIdx = parseInt(l.target.replace('paper-', ''));
+          return (relSourceIdx === sourceIdx && relTargetIdx === targetIdx) ||
+                 (relSourceIdx === targetIdx && relTargetIdx === sourceIdx);
+        });
 
-      const sourceCount = nodeLinkCount[sourceId] || 0;
-      const targetCount = nodeLinkCount[targetId] || 0;
+        if (!hasRelational) {
+          semanticLinks.push({
+            source: `paper-${sourceIdx}`,
+            target: `paper-${targetIdx}`,
+            id: linkId,
+            strength: sim.similarity,
+            width: Math.min(4, 0.5 + sim.similarity * 3),
+            type: 'semantic' // Dashed line
+          });
 
-      if (sourceCount < MAX_LINKS_PER_NODE && targetCount < MAX_LINKS_PER_NODE) {
-        nodeLinkCount[sourceId] = sourceCount + 1;
-        nodeLinkCount[targetId] = targetCount + 1;
-        return true;
+          linkDetails[linkId] = {
+            source: filteredPapers[sourceIdx],
+            target: filteredPapers[targetIdx],
+            sharedAuthors: [],
+            sharedKeywords: [],
+            strength: sim.similarity,
+            type: 'semantic',
+            reason: `Semantische Ähnlichkeit: ${(sim.similarity * 100).toFixed(0)}%`
+          };
+        }
       }
-      return false;
     });
 
-    // Berechne max Stärke für Normalisierung
-    const maxStrength = Math.max(...filteredLinks.map(l => l.strength), 1);
-    filteredLinks.forEach(link => {
+    // Apply Top-3 filtering per type
+    const MAX_LINKS_PER_NODE = 3;
+
+    const filterTopLinks = (links) => {
+      const nodeLinkCount = {};
+      links.sort((a, b) => b.strength - a.strength);
+
+      return links.filter(link => {
+        const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+        const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+
+        const sourceCount = nodeLinkCount[sourceId] || 0;
+        const targetCount = nodeLinkCount[targetId] || 0;
+
+        if (sourceCount < MAX_LINKS_PER_NODE && targetCount < MAX_LINKS_PER_NODE) {
+          nodeLinkCount[sourceId] = sourceCount + 1;
+          nodeLinkCount[targetId] = targetCount + 1;
+          return true;
+        }
+        return false;
+      });
+    };
+
+    const filteredRelational = filterTopLinks(relationalLinks);
+    const filteredSemantic = filterTopLinks(semanticLinks);
+
+    // Combine based on toggle states
+    let combinedLinks = [];
+    if (showRelational) combinedLinks = [...combinedLinks, ...filteredRelational];
+    if (showSemantic) combinedLinks = [...combinedLinks, ...filteredSemantic];
+
+    // Normalize strength for visualization
+    const maxStrength = Math.max(...combinedLinks.map(l => l.strength), 1);
+    combinedLinks.forEach(link => {
       link.normalizedStrength = link.strength / maxStrength;
     });
 
-    return { nodes, links: filteredLinks, linkDetails, maxStrength, allLinksCount: links.length };
-  }, [filteredPapers]);
+    return {
+      nodes,
+      links: combinedLinks,
+      linkDetails,
+      maxStrength,
+      relationalCount: filteredRelational.length,
+      semanticCount: filteredSemantic.length,
+      allLinksCount: relationalLinks.length + semanticLinks.length
+    };
+  }, [filteredPapers, semanticSimilarities, showRelational, showSemantic]);
 
   // Handlers
   const handleFilterChange = (newFilters) => {
@@ -254,15 +346,39 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
         <div>
           <h2 className="text-lg font-semibold text-gray-800">Knowledge Graph</h2>
           <p className="text-xs text-gray-500">
-            {filteredPapers.length} Papers, {graphData.links.length} Verbindungen
-            {graphData.allLinksCount > graphData.links.length && (
-              <span className="text-gray-400 ml-1">
-                (Top-3 von {graphData.allLinksCount})
+            {filteredPapers.length} Papers
+            {graphData.links.length > 0 && (
+              <span>
+                {' '}- <span className="text-emerald-600">{graphData.relationalCount} relational</span>
+                {' '}/ <span className="text-indigo-600">{graphData.semanticCount} semantisch</span>
               </span>
             )}
           </p>
         </div>
         <div className="flex items-center space-x-2">
+          {/* Edge Type Toggles */}
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+            <button
+              onClick={() => setShowRelational(!showRelational)}
+              className={`flex items-center px-2 py-1 rounded text-xs font-medium transition-colors ${
+                showRelational ? 'bg-emerald-100 text-emerald-700' : 'text-gray-400'
+              }`}
+              title="Relationale Verbindungen (gemeinsame Autoren)"
+            >
+              <span className="w-3 h-0.5 bg-current mr-1"></span>
+              Rel
+            </button>
+            <button
+              onClick={() => setShowSemantic(!showSemantic)}
+              className={`flex items-center px-2 py-1 rounded text-xs font-medium transition-colors ${
+                showSemantic ? 'bg-indigo-100 text-indigo-700' : 'text-gray-400'
+              }`}
+              title="Semantische Verbindungen (Textähnlichkeit)"
+            >
+              <span className="w-3 border-t border-dashed border-current mr-1"></span>
+              Sem
+            </button>
+          </div>
           {/* Show Only Sources Toggle */}
           {highlightedSources && highlightedSources.length > 0 && (
             <button
@@ -381,19 +497,52 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                     }
                     return link.width || 1;
                   }}
-                  // Kantenfarbe: dim wenn nicht verbunden mit fokussiertem Node
-                  linkColor={(link) => {
+                  // Custom link rendering: solid for relational, dashed for semantic
+                  linkCanvasObjectMode={() => 'replace'}
+                  linkCanvasObject={(link, ctx) => {
                     const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
                     const targetId = typeof link.target === 'object' ? link.target.id : link.target;
 
+                    // Calculate link opacity based on focus mode
+                    let alpha = 0.4 + (link.normalizedStrength || 0) * 0.5;
+                    let color;
+
                     if (focusedNode) {
                       if (sourceId === focusedNode || targetId === focusedNode) {
-                        return 'rgba(79, 70, 229, 0.8)'; // Indigo for connected
+                        alpha = 0.9;
+                        color = link.type === 'relational'
+                          ? `rgba(16, 185, 129, ${alpha})`  // Emerald for relational
+                          : `rgba(99, 102, 241, ${alpha})`; // Indigo for semantic
+                      } else {
+                        color = 'rgba(200, 200, 200, 0.1)';
                       }
-                      return 'rgba(200, 200, 200, 0.15)'; // Dim others
+                    } else {
+                      color = link.type === 'relational'
+                        ? `rgba(16, 185, 129, ${alpha})`  // Emerald for relational
+                        : `rgba(99, 102, 241, ${alpha})`; // Indigo for semantic
                     }
-                    const alpha = 0.2 + (link.normalizedStrength || 0) * 0.6;
-                    return `rgba(100, 116, 139, ${alpha})`;
+
+                    // Get coordinates
+                    const start = link.source;
+                    const end = link.target;
+
+                    ctx.beginPath();
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = link.width || 1;
+
+                    // Dashed line for semantic, solid for relational
+                    if (link.type === 'semantic') {
+                      ctx.setLineDash([4, 4]);
+                    } else {
+                      ctx.setLineDash([]);
+                    }
+
+                    ctx.moveTo(start.x, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    ctx.stroke();
+
+                    // Reset line dash
+                    ctx.setLineDash([]);
                   }}
                   // Kanten immer zeigen (wir haben schon Top-3 gefiltert)
                   linkVisibility={() => true}
@@ -677,44 +826,62 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                 </p>
               </div>
 
-              {/* Connections */}
+              {/* Hybrid Connections */}
               <div>
-                <h4 className="font-medium text-gray-700 mb-2">Verbindungen</h4>
-                <div className="flex items-center space-x-3 mb-1">
-                  <div className="w-12 h-0.5 bg-gray-400"></div>
-                  <span className="text-sm text-gray-600">Schwache Verbindung</span>
+                <h4 className="font-medium text-gray-700 mb-2">Verbindungstypen</h4>
+                <div className="space-y-2">
+                  {/* Relational */}
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-0.5 bg-emerald-500"></div>
+                    <div>
+                      <span className="text-sm font-medium text-emerald-700">Relational</span>
+                      <span className="text-xs text-gray-500 ml-1">(durchgezogen)</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 ml-15 pl-[60px]">
+                    Gemeinsame Autoren - explizite Fakten aus Neo4j
+                  </p>
+
+                  {/* Semantic */}
+                  <div className="flex items-center space-x-3 mt-2">
+                    <div className="w-12 border-t-2 border-dashed border-indigo-500"></div>
+                    <div>
+                      <span className="text-sm font-medium text-indigo-700">Semantisch</span>
+                      <span className="text-xs text-gray-500 ml-1">(gestrichelt)</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 ml-15 pl-[60px]">
+                    Ähnlicher Inhalt - interpretiert aus Vector-Embeddings
+                  </p>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-1.5 bg-gray-500"></div>
-                  <span className="text-sm text-gray-600">Starke Verbindung</span>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Verbindungsdicke zeigt die Anzahl gemeinsamer Autoren oder Themen.
-                  Es werden nur die <strong>Top-3 stärksten</strong> Verbindungen pro Paper angezeigt.
+                <p className="text-xs text-gray-500 mt-3">
+                  Die Liniendicke zeigt die Stärke der Verbindung.
+                  Es werden max. 3 Verbindungen pro Typ und Paper angezeigt.
                 </p>
               </div>
 
               {/* Interaction */}
-              <div className="bg-indigo-50 rounded-lg p-3">
-                <h4 className="font-medium text-indigo-800 mb-2">Interaktion</h4>
-                <ul className="text-xs text-indigo-700 space-y-1">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <h4 className="font-medium text-gray-700 mb-2">Interaktion</h4>
+                <ul className="text-xs text-gray-600 space-y-1">
                   <li><strong>Klick auf Paper:</strong> Fokus-Modus - zeigt nur verbundene Papers</li>
                   <li><strong>Klick auf Kante:</strong> Zeigt warum Papers verbunden sind</li>
                   <li><strong>Klick auf Hintergrund:</strong> Fokus aufheben</li>
+                  <li><strong>Rel/Sem Buttons:</strong> Verbindungstypen ein-/ausblenden</li>
                   <li><strong>Mausrad:</strong> Zoom rein/raus</li>
-                  <li><strong>Ziehen:</strong> Graph verschieben</li>
                 </ul>
               </div>
 
-              {/* Knowledge Graph Info */}
-              <div className="bg-blue-50 rounded-lg p-3">
-                <h4 className="font-medium text-blue-800 mb-1">Was ist ein Knowledge Graph?</h4>
-                <p className="text-xs text-blue-700">
-                  Ein Knowledge Graph verbindet Informationen über <strong>relationale Beziehungen</strong> -
-                  z.B. gemeinsame Autoren oder Themen. Im Gegensatz zu semantischer Ähnlichkeit
-                  (basierend auf Textinhalt) zeigt der Graph <strong>explizite Verbindungen</strong>
-                  zwischen Papers.
+              {/* Hybrid Graph Info */}
+              <div className="bg-gradient-to-r from-emerald-50 to-indigo-50 rounded-lg p-3">
+                <h4 className="font-medium text-gray-800 mb-1">Hybrid Knowledge Graph</h4>
+                <p className="text-xs text-gray-700">
+                  Dieser Graph kombiniert zwei Datenquellen:
                 </p>
+                <ul className="text-xs text-gray-600 mt-1 space-y-0.5">
+                  <li>• <span className="text-emerald-700 font-medium">Neo4j</span>: Explizite Relationen (Autoren, Keywords)</li>
+                  <li>• <span className="text-indigo-700 font-medium">Vector DB</span>: Semantische Ähnlichkeit (Textinhalt)</li>
+                </ul>
               </div>
             </div>
           </div>
