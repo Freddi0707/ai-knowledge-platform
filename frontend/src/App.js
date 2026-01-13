@@ -217,13 +217,10 @@ export default function HybridRAGInterface() {
   // UI State
   const [uploadExpanded, setUploadExpanded] = useState(true);
 
-  // Welcome Screen State (check localStorage)
-  const [showWelcome, setShowWelcome] = useState(() => {
-    return !localStorage.getItem('welcomeScreenDismissed');
-  });
+  // Welcome Screen State (always show on launch)
+  const [showWelcome, setShowWelcome] = useState(true);
 
   const handleDismissWelcome = () => {
-    localStorage.setItem('welcomeScreenDismissed', 'true');
     setShowWelcome(false);
   };
 

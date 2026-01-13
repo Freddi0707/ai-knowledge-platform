@@ -375,10 +375,10 @@ def get_semantic_similarities():
 
 if __name__ == '__main__':
     print(f"""
-╔══════════════════════════════════════════════════════════╗
-║         HYBRID RAG API SERVER                           ║
-║         Automatic Neo4j Import + Web Interface          ║
-╚══════════════════════════════════════════════════════════╝
+============================================================
+         HYBRID RAG API SERVER
+         Automatic Neo4j Import + Web Interface
+============================================================
 
 Starting server on http://localhost:{FLASK_PORT}
 Neo4j: {NEO4J_URL}
