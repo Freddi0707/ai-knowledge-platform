@@ -5,6 +5,7 @@ import ProportionalityPanel from './components/ProportionalityPanel';
 import SourceCard from './components/SourceCard';
 import ContextPanel from './components/ContextPanel';
 import GraphExplorer from './components/GraphExplorer';
+import WelcomeScreen from './components/WelcomeScreen';
 
 // API Configuration - uses environment variable with fallback
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
@@ -216,6 +217,16 @@ export default function HybridRAGInterface() {
   // UI State
   const [uploadExpanded, setUploadExpanded] = useState(true);
 
+  // Welcome Screen State (check localStorage)
+  const [showWelcome, setShowWelcome] = useState(() => {
+    return !localStorage.getItem('welcomeScreenDismissed');
+  });
+
+  const handleDismissWelcome = () => {
+    localStorage.setItem('welcomeScreenDismissed', 'true');
+    setShowWelcome(false);
+  };
+
   // ========== DEMO MODE ==========
   const activateDemoMode = () => {
     setPapers(DEMO_PAPERS);
@@ -311,6 +322,12 @@ export default function HybridRAGInterface() {
   };
 
   // ========== RENDER ==========
+
+  // Show welcome screen first
+  if (showWelcome) {
+    return <WelcomeScreen onDismiss={handleDismissWelcome} />;
+  }
+
   return (
     <div className="h-screen flex flex-col bg-slate-50">
       {/* Header */}
