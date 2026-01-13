@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp } from 'lucide-react';
+import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp, Home } from 'lucide-react';
 import TransparencyPanel from './components/TransparencyPanel';
 import ProportionalityPanel from './components/ProportionalityPanel';
 import SourceCard from './components/SourceCard';
@@ -9,7 +9,7 @@ import GraphExplorer from './components/GraphExplorer';
 // API Configuration - uses environment variable with fallback
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-// ========== DUMMY-DATEN FÜR DESIGN-PREVIEW ==========
+// ========== DEMO DATA FOR DESIGN PREVIEW ==========
 
 const DEMO_PAPERS = [
   {
@@ -81,7 +81,7 @@ const DEMO_PAPERS = [
 ];
 
 const DEMO_RESULTS = {
-  answer: "Customer Experience (CX) bezeichnet die Gesamtheit aller Erfahrungen, die ein Kunde mit einem Unternehmen macht. Laut den analysierten Papers umfasst CX alle Interaktionen über verschiedene Touchpoints hinweg - von der ersten Wahrnehmung bis zur Nachkaufphase. Die Forschung zeigt, dass positive Customer Experience zu höherer Kundenloyalität und Weiterempfehlungsbereitschaft führt.",
+  answer: "Customer Experience (CX) refers to the totality of all experiences a customer has with a company. According to the analyzed papers, CX encompasses all interactions across various touchpoints - from initial awareness to the post-purchase phase. Research shows that positive customer experience leads to higher customer loyalty and willingness to recommend.",
   confidence: 0.85,
   graphUsed: true,
   cypherQuery: "MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword) WHERE k.name CONTAINS 'customer experience' RETURN p.title, p.authors LIMIT 5",
@@ -182,7 +182,7 @@ function AnswerWithCitations({ answer, sources = [] }) {
   return <>{renderAnswerWithCitations()}</>;
 }
 
-// ========== HAUPTKOMPONENTE ==========
+// ========== MAIN COMPONENT ==========
 
 export default function HybridRAGInterface() {
   // Upload State
@@ -216,13 +216,27 @@ export default function HybridRAGInterface() {
   // UI State
   const [uploadExpanded, setUploadExpanded] = useState(true);
 
-  // ========== DEMO MODUS ==========
+  // ========== DEMO MODE ==========
   const activateDemoMode = () => {
     setPapers(DEMO_PAPERS);
     setPapersCount(DEMO_PAPERS.length);
     setUploadStatus('ready');
-    setUploadProgress(`Demo: ${DEMO_PAPERS.length} Papers geladen`);
+    setUploadProgress(`Demo: ${DEMO_PAPERS.length} papers loaded`);
     setUploadExpanded(false);
+  };
+
+  // ========== BACK TO START ==========
+  const resetToWelcome = () => {
+    setFile(null);
+    setUploadStatus('idle');
+    setUploadProgress('');
+    setPapers([]);
+    setPapersCount(0);
+    setQuery('');
+    setSearching(false);
+    setResults(null);
+    setShowResults(false);
+    setUploadExpanded(true);
   };
 
   // ========== UPLOAD HANDLER ==========
@@ -232,7 +246,7 @@ export default function HybridRAGInterface() {
 
     setFile(uploadedFile);
     setUploadStatus('uploading');
-    setUploadProgress('Datei wird hochgeladen...');
+    setUploadProgress('Uploading file...');
 
     try {
       const formData = new FormData();
@@ -252,14 +266,14 @@ export default function HybridRAGInterface() {
       setPapers(uploadResult.papers || DEMO_PAPERS);
       setPapersCount(uploadResult.papers_count || 0);
       setUploadStatus('ready');
-      setUploadProgress(`${uploadResult.papers_count} Papers verarbeitet`);
+      setUploadProgress(`${uploadResult.papers_count} papers processed`);
       setUploadExpanded(false);
     } catch (err) {
-      // Fallback zu Demo bei Fehler
+      // Fallback to demo on error
       setPapers(DEMO_PAPERS);
       setPapersCount(DEMO_PAPERS.length);
       setUploadStatus('ready');
-      setUploadProgress(`Demo-Modus (Backend nicht verfügbar)`);
+      setUploadProgress(`Demo mode (backend unavailable)`);
       setUploadExpanded(false);
     }
   };
@@ -298,21 +312,32 @@ export default function HybridRAGInterface() {
 
   // ========== RENDER ==========
   return (
-    <div className="h-screen flex flex-col bg-gray-100">
+    <div className="h-screen flex flex-col bg-slate-50">
       {/* Header */}
-      <header className="bg-white border-b px-6 py-3 flex items-center justify-between flex-shrink-0">
-        <div>
-          <h1 className="text-xl font-bold text-gray-800">AI Knowledge Platform</h1>
-          <p className="text-xs text-gray-500">
-            Basierend auf den 5 epistemischen Prinzipien (Malik & Terzidis, 2025)
-          </p>
+      <header className="bg-white px-6 py-4 flex items-center justify-between flex-shrink-0 shadow-sm">
+        <div className="flex items-center space-x-4">
+          {uploadStatus !== 'idle' && (
+            <button
+              onClick={resetToWelcome}
+              className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+              title="Back to start"
+            >
+              <Home className="w-5 h-5" />
+            </button>
+          )}
+          <div>
+            <h1 className="text-xl font-semibold text-gray-800">AI Knowledge Platform</h1>
+            <p className="text-xs text-gray-400">
+              Based on the 5 epistemic principles (Malik & Terzidis, 2025)
+            </p>
+          </div>
         </div>
         {uploadStatus === 'idle' && (
           <button
             onClick={activateDemoMode}
-            className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors text-sm font-medium"
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow-sm"
           >
-            Demo starten
+            Start Demo
           </button>
         )}
       </header>
@@ -323,8 +348,8 @@ export default function HybridRAGInterface() {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Upload Section - Collapsible */}
           {uploadStatus === 'idle' ? (
-            <div className="p-4 bg-white border-b">
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-indigo-400 transition-colors">
+            <div className="p-6 bg-white">
+              <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:border-indigo-300 hover:bg-indigo-50/30 transition-all">
                 <input
                   type="file"
                   accept=".xlsx,.xls,.csv"
@@ -333,30 +358,34 @@ export default function HybridRAGInterface() {
                   id="file-upload"
                 />
                 <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
-                  <FileText className="w-12 h-12 text-gray-400 mb-3" />
-                  <p className="text-gray-600 mb-1">Excel oder CSV hochladen</p>
-                  <p className="text-sm text-gray-400">.xlsx, .xls, .csv</p>
+                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                    <FileText className="w-8 h-8 text-slate-400" />
+                  </div>
+                  <p className="text-gray-700 font-medium mb-1">Upload Excel or CSV</p>
+                  <p className="text-sm text-slate-400">.xlsx, .xls, .csv</p>
                 </label>
               </div>
             </div>
           ) : (
             <div
-              className="bg-white border-b cursor-pointer"
+              className="bg-white cursor-pointer"
               onClick={() => setUploadExpanded(!uploadExpanded)}
             >
-              <div className="px-4 py-2 flex items-center justify-between">
+              <div className="px-4 py-3 flex items-center justify-between">
                 <div className="flex items-center">
-                  <CheckCircle className="w-5 h-5 text-green-500 mr-2" />
-                  <span className="text-sm text-gray-700">{uploadProgress}</span>
+                  <div className="w-6 h-6 bg-emerald-100 rounded-full flex items-center justify-center mr-2">
+                    <CheckCircle className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <span className="text-sm text-gray-600">{uploadProgress}</span>
                 </div>
                 {uploadExpanded ? (
-                  <ChevronUp className="w-4 h-4 text-gray-400" />
+                  <ChevronUp className="w-4 h-4 text-slate-400" />
                 ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                  <ChevronDown className="w-4 h-4 text-slate-400" />
                 )}
               </div>
               {uploadExpanded && (
-                <div className="px-4 pb-3 pt-1 border-t">
+                <div className="px-4 pb-3 pt-2 border-t border-slate-100">
                   <div className="flex items-center space-x-2">
                     <input
                       type="file"
@@ -367,10 +396,10 @@ export default function HybridRAGInterface() {
                     />
                     <label
                       htmlFor="file-upload-2"
-                      className="text-sm text-indigo-600 hover:underline cursor-pointer"
+                      className="text-sm text-indigo-600 hover:text-indigo-700 cursor-pointer"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      Andere Datei hochladen
+                      Upload different file
                     </label>
                   </div>
                 </div>
@@ -384,22 +413,26 @@ export default function HybridRAGInterface() {
               <GraphExplorer papers={papers} highlightedSources={results?.sources} />
             </div>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-400">
+            <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
-                <Upload className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p>Lade Papers hoch oder starte den Demo-Modus</p>
+                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Upload className="w-10 h-10 text-slate-300" />
+                </div>
+                <p className="text-slate-400">Upload papers or start demo mode</p>
               </div>
             </div>
           )}
         </div>
 
         {/* Right Sidebar: Search & Results */}
-        <div className="w-96 bg-white border-l flex flex-col flex-shrink-0">
+        <div className="w-96 bg-white border-l border-slate-200 flex flex-col flex-shrink-0">
           {/* Search Header */}
-          <div className="p-4 border-b">
+          <div className="p-4 border-b border-slate-100">
             <div className="flex items-center mb-3">
-              <MessageSquare className="w-5 h-5 text-indigo-600 mr-2" />
-              <h2 className="font-semibold text-gray-800">Fragen stellen</h2>
+              <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center mr-2">
+                <MessageSquare className="w-4 h-4 text-indigo-600" />
+              </div>
+              <h2 className="font-medium text-gray-800">Ask Questions</h2>
             </div>
 
             {/* Search Input */}
@@ -409,14 +442,14 @@ export default function HybridRAGInterface() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder="z.B. Was ist Customer Experience?"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                placeholder="e.g. What is Customer Experience?"
+                className="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-slate-50 focus:bg-white transition-colors"
                 disabled={papers.length === 0}
               />
               <button
                 onClick={handleSearch}
                 disabled={!query.trim() || searching || papers.length === 0}
-                className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 transition-colors"
+                className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 transition-colors"
               >
                 {searching ? (
                   <Loader className="w-5 h-5 animate-spin" />
@@ -428,12 +461,12 @@ export default function HybridRAGInterface() {
 
             {/* Example Questions */}
             {papers.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1">
-                {["Customer Experience?", "Papers von Klaus?", "AI Research?"].map((q) => (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {["Customer Experience?", "Papers by Klaus?", "AI Research?"].map((q) => (
                   <button
                     key={q}
                     onClick={() => setQuery(q)}
-                    className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
+                    className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-indigo-100 hover:text-indigo-700 transition-colors"
                   >
                     {q}
                   </button>
@@ -445,13 +478,15 @@ export default function HybridRAGInterface() {
           {/* Results Area */}
           <div className="flex-1 overflow-y-auto">
             {!results && !searching && (
-              <div className="h-full flex items-center justify-center text-gray-400 p-4">
+              <div className="h-full flex items-center justify-center p-4">
                 <div className="text-center">
-                  <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">
+                  <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Search className="w-7 h-7 text-slate-300" />
+                  </div>
+                  <p className="text-sm text-slate-400">
                     {papers.length === 0
-                      ? "Lade zuerst Papers hoch"
-                      : "Stelle eine Frage zu deinen Papers"
+                      ? "Upload papers first"
+                      : "Ask a question about your papers"
                     }
                   </p>
                 </div>
@@ -461,16 +496,18 @@ export default function HybridRAGInterface() {
             {searching && (
               <div className="h-full flex items-center justify-center">
                 <div className="text-center">
-                  <Loader className="w-8 h-8 mx-auto mb-3 animate-spin text-indigo-600" />
-                  <p className="text-sm text-gray-500 mb-2">
-                    {searchTime < 5 ? 'Suche in Knowledge Graph...' :
-                     searchTime < 15 ? 'Generiere Antwort mit LLM...' :
-                     searchTime < 30 ? 'Analysiere Quellen...' :
-                     'Bitte warten, komplexe Anfrage...'}
+                  <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Loader className="w-6 h-6 animate-spin text-indigo-600" />
+                  </div>
+                  <p className="text-sm text-slate-600 mb-1">
+                    {searchTime < 5 ? 'Searching Knowledge Graph...' :
+                     searchTime < 15 ? 'Generating answer with LLM...' :
+                     searchTime < 30 ? 'Analyzing sources...' :
+                     'Please wait, complex query...'}
                   </p>
-                  <p className="text-xs text-gray-400">{searchTime}s</p>
+                  <p className="text-xs text-slate-400">{searchTime}s</p>
                   {searchTime > 20 && (
-                    <p className="text-xs text-amber-500 mt-2">LLM-Antworten können bis zu 2 Minuten dauern</p>
+                    <p className="text-xs text-amber-600 mt-2">LLM responses can take up to 2 minutes</p>
                   )}
                 </div>
               </div>
@@ -481,23 +518,23 @@ export default function HybridRAGInterface() {
                 {/* Answer */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-gray-800">Antwort</h3>
+                    <h3 className="font-medium text-gray-800">Answer</h3>
                     {results.graphUsed && (
-                      <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">
+                      <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-xs font-medium">
                         Knowledge Graph
                       </span>
                     )}
                   </div>
-                  <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 leading-relaxed">
+                  <div className="p-4 bg-slate-50 rounded-xl text-sm text-gray-700 leading-relaxed">
                     <AnswerWithCitations answer={results.answer} sources={results.sources} />
                   </div>
                 </div>
 
                 {/* Cypher Query - Traceability */}
                 {results.cypherQuery && (
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-xs font-medium text-gray-500 mb-1">Cypher Query:</p>
-                    <code className="text-xs text-gray-600 block bg-white p-2 rounded border overflow-x-auto">
+                  <div className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs font-medium text-slate-500 mb-1">Cypher Query:</p>
+                    <code className="text-xs text-slate-600 block bg-white p-2 rounded-lg border border-slate-200 overflow-x-auto">
                       {results.cypherQuery}
                     </code>
                   </div>
@@ -511,7 +548,7 @@ export default function HybridRAGInterface() {
                 {/* Sources */}
                 <div>
                   <h4 className="font-semibold text-gray-800 mb-3">
-                    Quellen ({results.sources?.length})
+                    Sources ({results.sources?.length})
                   </h4>
                   <div className="space-y-3">
                     {results.sources?.map((source, idx) => (
@@ -526,8 +563,8 @@ export default function HybridRAGInterface() {
       </div>
 
       {/* Footer */}
-      <footer className="bg-white border-t px-4 py-2 text-center text-xs text-gray-400 flex-shrink-0">
-        Transparenz | Nachvollziehbarkeit | Proportionalität | Intersubjektivität | Kontextualisierung
+      <footer className="bg-white px-4 py-3 text-center text-xs text-slate-400 flex-shrink-0 border-t border-slate-100">
+        <span className="text-slate-500">5 Principles:</span> Transparency · Traceability · Proportionality · Intersubjectivity · Contextualization
       </footer>
     </div>
   );

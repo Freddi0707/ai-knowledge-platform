@@ -2,53 +2,53 @@ import React, { useState } from 'react';
 import { Info, ChevronDown, ChevronUp } from 'lucide-react';
 
 /**
- * TransparencyPanel - Zeigt Konfidenz mit Erklärung
- * Epistemisches Prinzip: TRANSPARENZ
+ * TransparencyPanel - Shows confidence with explanation
+ * Epistemic Principle: TRANSPARENCY
  *
  * Props:
- * - confidence: number (0-1) - Der Konfidenzwert
- * - sources: array - Die verwendeten Quellen für die Berechnung
+ * - confidence: number (0-1) - The confidence value
+ * - sources: array - The sources used for calculation
  */
 export default function TransparencyPanel({ confidence, sources = [] }) {
   const [showExplanation, setShowExplanation] = useState(false);
 
   const confidencePercent = Math.round(confidence * 100);
 
-  // Konfidenz-Level bestimmen
+  // Determine confidence level
   const getConfidenceLevel = (percent) => {
-    if (percent >= 80) return { label: 'Hoch', color: 'green' };
-    if (percent >= 50) return { label: 'Mittel', color: 'yellow' };
-    return { label: 'Niedrig', color: 'red' };
+    if (percent >= 80) return { label: 'High', color: 'green' };
+    if (percent >= 50) return { label: 'Medium', color: 'yellow' };
+    return { label: 'Low', color: 'red' };
   };
 
   const level = getConfidenceLevel(confidencePercent);
 
-  // Berechne durchschnittliche Similarity der Quellen
+  // Calculate average similarity of sources
   const avgSimilarity = sources.length > 0
     ? Math.round(sources.reduce((sum, s) => sum + (s.similarity || 0), 0) / sources.length * 100)
     : 0;
 
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-      {/* Header mit Icon */}
+      {/* Header with Icon */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-2">
           <span className="text-lg">🎯</span>
-          <h4 className="font-semibold text-gray-800">Transparenz</h4>
+          <h4 className="font-semibold text-gray-800">Transparency</h4>
         </div>
         <span className={`px-2 py-1 rounded-full text-xs font-medium
           ${level.color === 'green' ? 'bg-green-100 text-green-700' : ''}
           ${level.color === 'yellow' ? 'bg-yellow-100 text-yellow-700' : ''}
           ${level.color === 'red' ? 'bg-red-100 text-red-700' : ''}
         `}>
-          {level.label}e Konfidenz
+          {level.label} Confidence
         </span>
       </div>
 
-      {/* Konfidenz-Balken */}
+      {/* Confidence Bar */}
       <div className="mb-3">
         <div className="flex justify-between text-sm mb-1">
-          <span className="text-gray-600">Konfidenz</span>
+          <span className="text-gray-600">Confidence</span>
           <span className="font-medium text-gray-800">{confidencePercent}%</span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-3">
@@ -63,46 +63,46 @@ export default function TransparencyPanel({ confidence, sources = [] }) {
         </div>
       </div>
 
-      {/* Erklärung Toggle */}
+      {/* Explanation Toggle */}
       <button
         onClick={() => setShowExplanation(!showExplanation)}
         className="flex items-center space-x-1 text-sm text-blue-600 hover:text-blue-800 transition-colors"
       >
         <Info className="w-4 h-4" />
-        <span>Wie wird die Konfidenz berechnet?</span>
+        <span>How is confidence calculated?</span>
         {showExplanation ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
       </button>
 
-      {/* Erklärung (expandierbar) */}
+      {/* Explanation (expandable) */}
       {showExplanation && (
         <div className="mt-3 p-3 bg-white rounded-lg border border-blue-100 text-sm">
           <p className="text-gray-700 mb-2">
-            <strong>Die Konfidenz basiert auf:</strong>
+            <strong>Confidence is based on:</strong>
           </p>
           <ul className="space-y-1 text-gray-600">
             <li className="flex items-start">
               <span className="mr-2">•</span>
               <span>
-                <strong>Durchschnittliche Ähnlichkeit:</strong> {avgSimilarity}%
-                (Semantische Nähe der Quellen zur Frage)
+                <strong>Average similarity:</strong> {avgSimilarity}%
+                (Semantic proximity of sources to the question)
               </span>
             </li>
             <li className="flex items-start">
               <span className="mr-2">•</span>
               <span>
-                <strong>Anzahl Quellen:</strong> {sources.length} Paper gefunden
+                <strong>Number of sources:</strong> {sources.length} papers found
               </span>
             </li>
             <li className="flex items-start">
               <span className="mr-2">•</span>
               <span>
-                <strong>Berechnung:</strong> Gewichteter Durchschnitt der Similarity-Scores
+                <strong>Calculation:</strong> Weighted average of similarity scores
               </span>
             </li>
           </ul>
           <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-yellow-800 text-xs">
-            <strong>Hinweis:</strong> Eine hohe Konfidenz bedeutet nicht, dass die Antwort korrekt ist.
-            Bitte überprüfen Sie die Quellen.
+            <strong>Note:</strong> High confidence does not mean the answer is correct.
+            Please verify the sources.
           </div>
         </div>
       )}

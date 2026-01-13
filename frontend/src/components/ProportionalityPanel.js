@@ -1,18 +1,18 @@
 import React from 'react';
 
 /**
- * ProportionalityPanel - Zeigt wie stark jede Quelle zum Ergebnis beiträgt
- * Epistemisches Prinzip: PROPORTIONALITÄT
+ * ProportionalityPanel - Shows how much each source contributes to the result
+ * Epistemic Principle: PROPORTIONALITY
  *
  * Props:
- * - sources: array - Die Quellen mit similarity scores
+ * - sources: array - The sources with similarity scores
  */
 export default function ProportionalityPanel({ sources = [] }) {
   if (!sources || sources.length === 0) {
     return null;
   }
 
-  // Berechne die proportionalen Beiträge (normalisiert auf 100%)
+  // Calculate proportional contributions (normalized to 100%)
   const totalSimilarity = sources.reduce((sum, s) => sum + (s.similarity || 0), 0);
 
   const sourcesWithContribution = sources.map((source, index) => ({
@@ -23,10 +23,10 @@ export default function ProportionalityPanel({ sources = [] }) {
     index: index + 1
   }));
 
-  // Farben für die Balken (absteigend nach Beitrag)
+  // Colors for bars (descending by contribution)
   const getBarColor = (index) => {
     const colors = [
-      'bg-indigo-500',  // Höchster Beitrag
+      'bg-indigo-500',  // Highest contribution
       'bg-blue-500',
       'bg-cyan-500',
       'bg-teal-500',
@@ -40,14 +40,14 @@ export default function ProportionalityPanel({ sources = [] }) {
       {/* Header */}
       <div className="flex items-center space-x-2 mb-3">
         <span className="text-lg">⚖️</span>
-        <h4 className="font-semibold text-gray-800">Proportionalität</h4>
+        <h4 className="font-semibold text-gray-800">Proportionality</h4>
       </div>
 
       <p className="text-sm text-gray-600 mb-3">
-        Wie stark trägt jede Quelle zur Antwort bei:
+        How much each source contributes to the answer:
       </p>
 
-      {/* Beitrags-Balken */}
+      {/* Contribution Bars */}
       <div className="space-y-2">
         {sourcesWithContribution.map((source, idx) => (
           <div key={idx} className="group">
@@ -70,10 +70,10 @@ export default function ProportionalityPanel({ sources = [] }) {
         ))}
       </div>
 
-      {/* Erklärung */}
+      {/* Explanation */}
       <div className="mt-3 text-xs text-gray-500">
-        Die Prozente zeigen, wie stark jede Quelle semantisch zur Beantwortung
-        Ihrer Frage beigetragen hat (basierend auf Similarity-Scores).
+        Percentages show how much each source semantically contributed to answering
+        your question (based on similarity scores).
       </div>
     </div>
   );

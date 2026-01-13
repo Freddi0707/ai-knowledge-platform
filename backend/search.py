@@ -12,7 +12,6 @@ from langchain_ollama import OllamaLLM
 from langchain_community.graphs import Neo4jGraph
 from langchain_community.chains.graph_qa.cypher import GraphCypherQAChain
 from langchain_core.prompts import PromptTemplate
-
 from backend.etl import safe_str
 
 

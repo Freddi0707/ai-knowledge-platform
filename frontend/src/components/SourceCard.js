@@ -2,23 +2,23 @@ import React, { useState } from 'react';
 import { ExternalLink, ChevronDown, ChevronUp, CheckCircle, BookOpen } from 'lucide-react';
 
 /**
- * SourceCard - Einzelne Quelle mit allen Details
- * Epistemische Prinzipien: NACHVOLLZIEHBARKEIT + INTERSUBJEKTIVITÄT
+ * SourceCard - Single source with all details
+ * Epistemic Principles: TRACEABILITY + INTERSUBJECTIVITY
  *
- * Basiert auf den echten Datenfeldern aus Scopus/Excel:
+ * Based on real data fields from Scopus/Excel:
  * title, authors, abstract, date, vhbRanking, abdcRanking,
  * journal_name, doi, url, citations
  */
 export default function SourceCard({ source, index }) {
   const [expanded, setExpanded] = useState(false);
 
-  // Destrukturiere die echten Felder aus den Daten
+  // Destructure real fields from data
   const {
-    title = 'Unbekannter Titel',
-    authors = 'Unbekannte Autoren',
-    year = null,        // Wird aus date extrahiert oder direkt übergeben
-    date = null,        // Alternativ: Volles Datum
-    similarity = 0,     // Vom Search-Algorithmus berechnet
+    title = 'Unknown Title',
+    authors = 'Unknown Authors',
+    year = null,        // Extracted from date or passed directly
+    date = null,        // Alternative: Full date
+    similarity = 0,     // Calculated by search algorithm
     doi = null,
     url = null,
     journal_name = null,
@@ -28,12 +28,12 @@ export default function SourceCard({ source, index }) {
     abstract = null
   } = source;
 
-  // Jahr aus date extrahieren falls nicht direkt vorhanden
+  // Extract year from date if not directly available
   const displayYear = year || (date ? date.substring(0, 4) : 'N/A');
 
   const matchPercent = Math.round(similarity * 100);
 
-  // Ranking-Badge Farbe basierend auf VHB/ABDC System
+  // Ranking badge color based on VHB/ABDC system
   const getRankingColor = (ranking) => {
     if (!ranking) return 'bg-gray-100 text-gray-600';
     const r = ranking.toUpperCase();
@@ -44,14 +44,14 @@ export default function SourceCard({ source, index }) {
     return 'bg-gray-100 text-gray-600';
   };
 
-  // Autoren formatieren (von "Name, Vorname (ID); ..." zu "Name, V.; ...")
+  // Format authors (from "Name, Firstname (ID); ..." to "Name, F.; ...")
   const formatAuthors = (authorsStr) => {
-    if (!authorsStr) return 'Unbekannte Autoren';
-    // Entferne IDs in Klammern und kürze
+    if (!authorsStr) return 'Unknown Authors';
+    // Remove IDs in parentheses and shorten
     return authorsStr
-      .replace(/\s*\(\d+\)/g, '')  // Entferne (123456) IDs
+      .replace(/\s*\(\d+\)/g, '')  // Remove (123456) IDs
       .split(';')
-      .slice(0, 3)  // Maximal 3 Autoren zeigen
+      .slice(0, 3)  // Show maximum 3 authors
       .map(a => a.trim())
       .join('; ')
       + (authorsStr.split(';').length > 3 ? ' et al.' : '');
@@ -76,14 +76,14 @@ export default function SourceCard({ source, index }) {
         </div>
       </div>
 
-      {/* Autoren & Jahr */}
+      {/* Authors & Year */}
       <p className="text-sm text-gray-600 mb-3">
         {formatAuthors(authors)} ({displayYear})
       </p>
 
-      {/* Badges Row - INTERSUBJEKTIVITÄT */}
+      {/* Badges Row - INTERSUBJECTIVITY */}
       <div className="flex flex-wrap gap-2 mb-3">
-        {/* Peer-Review Badge - Akademische Journals sind peer-reviewed */}
+        {/* Peer-Review Badge - Academic journals are peer-reviewed */}
         <span className="inline-flex items-center px-2 py-1 bg-green-50 text-green-700 rounded-full text-xs border border-green-200">
           <CheckCircle className="w-3 h-3 mr-1" />
           Peer-Reviewed
@@ -111,15 +111,15 @@ export default function SourceCard({ source, index }) {
           </span>
         )}
 
-        {/* Zitationen */}
+        {/* Citations */}
         {citations !== null && citations !== undefined && (
           <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-full text-xs border border-purple-200">
-            {citations} Zitierungen
+            {citations} Citations
           </span>
         )}
       </div>
 
-      {/* NACHVOLLZIEHBARKEIT - DOI & Links */}
+      {/* TRACEABILITY - DOI & Links */}
       <div className="flex flex-wrap items-center gap-3 text-sm">
         {doi && (
           <a
@@ -140,13 +140,13 @@ export default function SourceCard({ source, index }) {
             rel="noopener noreferrer"
             className="text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center"
           >
-            Quelle ansehen
+            View source
             <ExternalLink className="w-3 h-3 ml-1" />
           </a>
         )}
       </div>
 
-      {/* Expandierbares Abstract */}
+      {/* Expandable Abstract */}
       {abstract && (
         <div className="mt-3 border-t pt-3">
           <button
@@ -154,7 +154,7 @@ export default function SourceCard({ source, index }) {
             className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors"
           >
             {expanded ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
-            {expanded ? 'Abstract verbergen' : 'Abstract anzeigen'}
+            {expanded ? 'Hide abstract' : 'Show abstract'}
           </button>
 
           {expanded && (

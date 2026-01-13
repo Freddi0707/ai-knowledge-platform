@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
+import { forceCollide } from 'd3-force';
 import { ZoomIn, ZoomOut, Maximize2, Info, List, Network, HelpCircle, X } from 'lucide-react';
 import FilterSidebar from './FilterSidebar';
 import ConnectionModal from './ConnectionModal';
@@ -7,10 +8,10 @@ import ConnectionModal from './ConnectionModal';
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 /**
- * GraphExplorer - Kombiniert Filter-Sidebar mit interaktivem Paper-Graph
+ * GraphExplorer - Combines filter sidebar with interactive paper graph
  *
  * Props:
- * - papers: array - Alle Papers aus dem Upload
+ * - papers: array - All papers from upload
  */
 export default function GraphExplorer({ papers = [], highlightedSources = null }) {
   const graphRef = useRef();
@@ -63,17 +64,17 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
     fetchSemanticSimilarities();
   }, [papers]);
 
-  // Papers filtern basierend auf Filtern
+  // Filter papers based on filters
   const filteredPapers = useMemo(() => {
     return papers.filter(paper => {
-      // Highlighted Sources Filter (wenn aktiv, nur diese zeigen)
+      // Highlighted Sources Filter (if active, show only these)
       if (showOnlyHighlighted && highlightedDOIs.size > 0) {
         if (!highlightedDOIs.has(paper.doi)) {
           return false;
         }
       }
 
-      // Jahr Filter
+      // Year Filter
       if (paper.date) {
         const year = parseInt(paper.date.substring(0, 4));
         if (year < filters.yearRange.min || year > filters.yearRange.max) {
@@ -81,7 +82,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
         }
       }
 
-      // Autoren Filter (wenn ausgewählt, muss Paper mindestens einen haben)
+      // Authors Filter (if selected, paper must have at least one)
       if (filters.authors.length > 0) {
         const paperAuthors = paper.authors?.split(';').map(a => a.trim().replace(/\s*\(\d+\)/g, '')) || [];
         if (!filters.authors.some(a => paperAuthors.includes(a))) {
@@ -115,7 +116,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
     });
   }, [papers, filters, showOnlyHighlighted, highlightedDOIs]);
 
-  // Hilfsfunktion: Erstelle Citation-Style Label (z.B. "Verhoef et al., 2021")
+  // Helper function: Create citation-style label (e.g. "Verhoef et al., 2021")
   const getCitationLabel = (paper) => {
     const firstAuthor = paper.authors?.split(';')[0]?.trim().replace(/\s*\(\d+\)/g, '') || 'Unknown';
     const lastName = firstAuthor.split(',')[0]?.trim() || firstAuthor;
@@ -124,24 +125,24 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
     return authorCount > 1 ? `${lastName} et al., ${year}` : `${lastName}, ${year}`;
   };
 
-  // Hilfsfunktion: Farbe basierend auf Jahr (älter = hell grün, neuer = dunkel grün)
+  // Helper function: Color based on year (older = light green, newer = dark green)
   const getYearColor = (paper) => {
     const year = parseInt(paper.date?.substring(0, 4)) || 2020;
     const minYear = 2015;
     const maxYear = 2025;
     const normalized = Math.max(0, Math.min(1, (year - minYear) / (maxYear - minYear)));
 
-    // Gradient von hell teal (#99d8c9) zu dunkel teal (#006d5b)
+    // Gradient from light teal (#99d8c9) to dark teal (#006d5b)
     const r = Math.round(153 - normalized * 103); // 153 -> 50
     const g = Math.round(216 - normalized * 107); // 216 -> 109
     const b = Math.round(201 - normalized * 110); // 201 -> 91
     return `rgb(${r}, ${g}, ${b})`;
   };
 
-  // Hilfsfunktion: Größe basierend auf Citations
+  // Helper function: Size based on citations
   const getNodeSize = (paper) => {
     const citations = parseInt(paper.citations) || 0;
-    // Min 3, Max 15, skaliert logarithmisch
+    // Min 3, Max 15, scaled logarithmically
     return Math.max(3, Math.min(15, 3 + Math.log(citations + 1) * 2));
   };
 
@@ -152,7 +153,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
     return doi.replace(/^https?:\/\/doi\.org\//i, '').replace(/^doi:/i, '').trim();
   };
 
-  // Graph-Daten generieren: Papers als Knoten, relationale + semantische Verbindungen
+  // Generate graph data: Papers as nodes, relational + semantic connections
   const graphData = useMemo(() => {
     // Create DOI to index mapping for semantic similarities (normalized)
     const doiToIndex = {};
@@ -176,25 +177,25 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
 
     const relationalLinks = [];
     const semanticLinks = [];
-    const linkDetails = {}; // Speichert Details für jede Verbindung
+    const linkDetails = {}; // Stores details for each connection
 
-    // 1. Relationale Verbindungen (gemeinsame Autoren/Keywords)
+    // 1. Relational connections (shared authors/keywords)
     for (let i = 0; i < filteredPapers.length; i++) {
       for (let j = i + 1; j < filteredPapers.length; j++) {
         const paperA = filteredPapers[i];
         const paperB = filteredPapers[j];
 
-        // Gemeinsame Autoren finden
+        // Find shared authors
         const authorsA = paperA.authors?.split(';').map(a => a.trim().replace(/\s*\(\d+\)/g, '')) || [];
         const authorsB = paperB.authors?.split(';').map(a => a.trim().replace(/\s*\(\d+\)/g, '')) || [];
         const sharedAuthors = authorsA.filter(a => authorsB.includes(a));
 
-        // Gemeinsame Keywords finden (filter out generic sources like "Scopus")
+        // Find shared keywords (filter out generic sources like "Scopus")
         const keywordsA = paperA.sources?.split(';').map(k => k.trim()).filter(k => k.toLowerCase() !== 'scopus') || [];
         const keywordsB = paperB.sources?.split(';').map(k => k.trim()).filter(k => k.toLowerCase() !== 'scopus') || [];
         const sharedKeywords = keywordsA.filter(k => keywordsB.includes(k));
 
-        // Nur Autoren-basierte Verbindungen (nicht Keywords wie "Scopus")
+        // Only author-based connections (not keywords like "Scopus")
         if (sharedAuthors.length > 0) {
           const linkId = `relational-${i}-${j}`;
           const strength = sharedAuthors.length * 2;
@@ -215,13 +216,13 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
             sharedKeywords,
             strength,
             type: 'relational',
-            reason: `Gemeinsame Autoren: ${sharedAuthors.join(', ')}`
+            reason: `Shared authors: ${sharedAuthors.join(', ')}`
           };
         }
       }
     }
 
-    // 2. Semantische Verbindungen (aus Vector-Embeddings)
+    // 2. Semantic connections (from vector embeddings)
     semanticSimilarities.forEach(sim => {
       // Try both normalized and original DOI formats
       const sourceIdx = doiToIndex[sim.source_doi] ?? doiToIndex[normalizeDoi(sim.source_doi)];
@@ -255,7 +256,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
             sharedKeywords: [],
             strength: sim.similarity,
             type: 'semantic',
-            reason: `Semantische Ähnlichkeit: ${(sim.similarity * 100).toFixed(0)}%`
+            reason: `Semantic similarity: ${(sim.similarity * 100).toFixed(0)}%`
           };
         }
       }
@@ -353,30 +354,30 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
   const handleFitView = () => graphRef.current?.zoomToFit(400, 50);
 
   return (
-    <div className="bg-white rounded-lg shadow-lg overflow-hidden h-full flex flex-col">
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-full flex flex-col">
       {/* Header */}
-      <div className="border-b px-4 py-3 flex items-center justify-between flex-shrink-0">
+      <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between flex-shrink-0">
         <div>
-          <h2 className="text-lg font-semibold text-gray-800">Knowledge Graph</h2>
-          <p className="text-xs text-gray-500">
+          <h2 className="text-lg font-medium text-gray-800">Knowledge Graph</h2>
+          <p className="text-xs text-slate-500">
             {filteredPapers.length} Papers
             {graphData.links.length > 0 && (
               <span>
                 {' '}- <span className="text-emerald-600">{graphData.relationalCount} relational</span>
-                {' '}/ <span className="text-indigo-600">{graphData.semanticCount} semantisch</span>
+                {' '}/ <span className="text-indigo-600">{graphData.semanticCount} semantic</span>
               </span>
             )}
           </p>
         </div>
         <div className="flex items-center space-x-2">
           {/* Edge Type Toggles */}
-          <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+          <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
             <button
               onClick={() => setShowRelational(!showRelational)}
               className={`flex items-center px-2 py-1 rounded text-xs font-medium transition-colors ${
                 showRelational ? 'bg-emerald-100 text-emerald-700' : 'text-gray-400'
               }`}
-              title="Relationale Verbindungen (gemeinsame Autoren)"
+              title="Relational connections (shared authors)"
             >
               <span className="w-3 h-0.5 bg-current mr-1"></span>
               Rel
@@ -386,7 +387,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
               className={`flex items-center px-2 py-1 rounded text-xs font-medium transition-colors ${
                 showSemantic ? 'bg-indigo-100 text-indigo-700' : 'text-gray-400'
               }`}
-              title="Semantische Verbindungen (Textähnlichkeit)"
+              title="Semantic connections (text similarity)"
             >
               <span className="w-3 border-t border-dashed border-current mr-1"></span>
               Sem
@@ -398,16 +399,16 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
               onClick={() => setShowOnlyHighlighted(!showOnlyHighlighted)}
               className={`flex items-center px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 showOnlyHighlighted
-                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-300'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  ? 'bg-indigo-100 text-indigo-700'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
-              title="Nur Quellen der letzten Antwort anzeigen"
+              title="Show only sources from last answer"
             >
-              {showOnlyHighlighted ? `Quellen (${highlightedSources.length})` : 'Nur Quellen'}
+              {showOnlyHighlighted ? `Sources (${highlightedSources.length})` : 'Sources only'}
             </button>
           )}
           {/* View Toggle */}
-          <div className="flex bg-gray-100 rounded-lg p-0.5">
+          <div className="flex bg-slate-100 rounded-lg p-0.5">
             <button
               onClick={() => setViewMode('graph')}
               className={`flex items-center px-2.5 py-1 rounded text-xs font-medium transition-colors ${
@@ -424,16 +425,16 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
               }`}
             >
               <List className="w-3.5 h-3.5 mr-1" />
-              Liste
+              List
             </button>
           </div>
           {/* Info Button */}
           <button
             onClick={() => setShowInfoModal(true)}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            title="Legende & Erklärung"
+            className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+            title="Legend & Explanation"
           >
-            <HelpCircle className="w-4 h-4 text-gray-500" />
+            <HelpCircle className="w-4 h-4 text-slate-400" />
           </button>
         </div>
       </div>
@@ -441,7 +442,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
       {/* Main Content: Sidebar + Graph */}
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar - Fixed width */}
-        <div className="w-72 flex-shrink-0 border-r bg-white overflow-hidden">
+        <div className="w-72 flex-shrink-0 border-r border-slate-100 bg-white overflow-hidden">
           <FilterSidebar
             papers={papers}
             filters={filters}
@@ -453,10 +454,10 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
         <div className="flex-1 flex flex-col min-w-0">
           {/* Graph Controls - only show in graph mode */}
           {viewMode === 'graph' && (
-            <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b">
+            <div className="flex items-center justify-between px-4 py-2 bg-slate-50/50 border-b border-slate-100">
               {/* Year Gradient Legend */}
               <div className="flex items-center space-x-3 text-xs">
-                <span className="text-gray-500">Jahr:</span>
+                <span className="text-slate-500">Year:</span>
                 <div className="flex items-center">
                   <div
                     className="w-24 h-3 rounded-full mr-2"
@@ -464,20 +465,20 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                       background: 'linear-gradient(to right, rgb(153, 216, 201), rgb(50, 109, 91))'
                     }}
                   />
-                  <span className="text-gray-500">2015 → 2025</span>
+                  <span className="text-slate-500">2015 → 2025</span>
                 </div>
               </div>
 
               {/* Zoom Controls */}
               <div className="flex items-center space-x-1">
-                <button onClick={handleZoomIn} className="p-1.5 hover:bg-gray-200 rounded" title="Zoom In">
-                  <ZoomIn className="w-4 h-4 text-gray-600" />
+                <button onClick={handleZoomIn} className="p-1.5 hover:bg-slate-200 rounded" title="Zoom In">
+                  <ZoomIn className="w-4 h-4 text-slate-500" />
                 </button>
-                <button onClick={handleZoomOut} className="p-1.5 hover:bg-gray-200 rounded" title="Zoom Out">
-                  <ZoomOut className="w-4 h-4 text-gray-600" />
+                <button onClick={handleZoomOut} className="p-1.5 hover:bg-slate-200 rounded" title="Zoom Out">
+                  <ZoomOut className="w-4 h-4 text-slate-500" />
                 </button>
-                <button onClick={handleFitView} className="p-1.5 hover:bg-gray-200 rounded" title="Alles anzeigen">
-                  <Maximize2 className="w-4 h-4 text-gray-600" />
+                <button onClick={handleFitView} className="p-1.5 hover:bg-slate-200 rounded" title="Fit to view">
+                  <Maximize2 className="w-4 h-4 text-slate-500" />
                 </button>
               </div>
             </div>
@@ -485,7 +486,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
 
           {/* Graph View */}
           {viewMode === 'graph' && (
-            <div className="flex-1 bg-gray-100">
+            <div className="flex-1 bg-slate-50">
               {graphData.nodes.length > 0 ? (
                 <ForceGraph2D
                   ref={graphRef}
@@ -499,7 +500,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                     return node.color;
                   }}
                   nodeVal={3}
-                  // Kantendicke basierend auf Stärke
+                  // Edge width based on strength
                   linkWidth={(link) => {
                     if (focusedNode) {
                       const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
@@ -557,7 +558,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                     // Reset line dash
                     ctx.setLineDash([]);
                   }}
-                  // Kanten immer zeigen (wir haben schon Top-3 gefiltert)
+                  // Always show edges (we already filtered to top-3)
                   linkVisibility={() => true}
                   onNodeClick={handleNodeClick}
                   onLinkClick={handleLinkClick}
@@ -565,19 +566,26 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                   onZoom={({ k }) => setZoomLevel(k)}
                   linkDirectionalParticles={0}
                   cooldownTicks={300}
-                  d3VelocityDecay={0.2}
-                  d3AlphaDecay={0.01}
+                  d3VelocityDecay={0.3}
+                  d3AlphaDecay={0.02}
                   d3AlphaMin={0.001}
-                  // Distanz: starke Verbindungen = näher, schwache = weiter
+                  // Distance: strong connections = closer, weak = further
                   linkDistance={(link) => {
-                    const baseDistance = 200;
+                    const baseDistance = 60;
                     const strength = link.normalizedStrength || 0.5;
-                    return baseDistance * (1.2 - strength * 0.8);
+                    return baseDistance * (1.5 - strength * 0.5);
                   }}
                   nodeRelSize={4}
                   d3Force={(d3) => {
-                    d3('charge').strength(-400);
-                    d3('collision', null);
+                    // Less repulsion → Clusters closer together
+                    d3('charge').strength(-80).distanceMax(150);
+                    // Collision detection → Nodes don't overlap
+                    d3('collision', forceCollide()
+                      .radius(node => (node.size || 4) + 8)
+                      .strength(0.8)
+                    );
+                    // Center force → Keeps everything together
+                    d3('center').strength(0.1);
                   }}
                   onEngineStop={() => graphRef.current?.zoomToFit(400, 80)}
                   nodeCanvasObject={(node, ctx, globalScale) => {
@@ -616,8 +624,8 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
               ) : (
                 <div className="h-full flex items-center justify-center text-gray-500">
                   <div className="text-center">
-                    <p className="mb-2">Keine Papers entsprechen den Filtern.</p>
-                    <p className="text-sm">Versuche die Filter anzupassen.</p>
+                    <p className="mb-2">No papers match the filters.</p>
+                    <p className="text-sm">Try adjusting the filters.</p>
                   </div>
                 </div>
               )}
@@ -628,14 +636,14 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
           {viewMode === 'list' && (
             <div className="flex-1 overflow-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 sticky top-0">
-                  <tr className="border-b">
-                    <th className="text-left px-4 py-3 font-medium text-gray-700">Titel</th>
-                    <th className="text-left px-4 py-3 font-medium text-gray-700">Autoren</th>
-                    <th className="text-center px-4 py-3 font-medium text-gray-700 w-20">Jahr</th>
-                    <th className="text-center px-4 py-3 font-medium text-gray-700 w-24">Zitationen</th>
-                    <th className="text-center px-4 py-3 font-medium text-gray-700 w-20">VHB</th>
-                    <th className="text-center px-4 py-3 font-medium text-gray-700 w-20">ABDC</th>
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr className="border-b border-slate-200">
+                    <th className="text-left px-4 py-3 font-medium text-slate-600">Title</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600">Authors</th>
+                    <th className="text-center px-4 py-3 font-medium text-slate-600 w-20">Year</th>
+                    <th className="text-center px-4 py-3 font-medium text-slate-600 w-24">Citations</th>
+                    <th className="text-center px-4 py-3 font-medium text-slate-600 w-20">VHB</th>
+                    <th className="text-center px-4 py-3 font-medium text-slate-600 w-20">ABDC</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -643,7 +651,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                     <tr
                       key={idx}
                       onClick={() => setSelectedPaper(paper)}
-                      className="border-b hover:bg-gray-50 cursor-pointer transition-colors"
+                      className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center">
@@ -683,7 +691,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
               </table>
               {filteredPapers.length === 0 && (
                 <div className="h-64 flex items-center justify-center text-gray-500">
-                  <p>Keine Papers entsprechen den Filtern.</p>
+                  <p>No papers match the filters.</p>
                 </div>
               )}
             </div>
@@ -691,27 +699,27 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
 
           {/* Info Bar - only in graph mode */}
           {viewMode === 'graph' && (
-            <div className="px-4 py-2 bg-blue-50 border-t flex items-center justify-between text-sm text-blue-700">
+            <div className="px-4 py-2 bg-indigo-50/50 border-t border-slate-100 flex items-center justify-between text-sm text-slate-600">
               <div className="flex items-center">
-                <Info className="w-4 h-4 mr-2" />
+                <Info className="w-4 h-4 mr-2 text-indigo-500" />
                 {focusedNode ? (
                   <span>
-                    <strong>Fokus-Modus:</strong> Nur verbundene Papers werden angezeigt.
-                    Klicke auf den Hintergrund oder denselben Node zum Zurücksetzen.
+                    <span className="font-medium text-indigo-600">Focus mode:</span> Only connected papers are shown.
+                    Click on background or same node to reset.
                   </span>
                 ) : (
                   <span>
-                    <strong>Klicke auf ein Paper</strong> um nur dessen Verbindungen zu sehen.
-                    Klicke auf eine Kante für Details.
+                    <span className="font-medium">Click on a paper</span> to see only its connections.
+                    Click on an edge for details.
                   </span>
                 )}
               </div>
               {focusedNode && (
                 <button
                   onClick={() => setFocusedNode(null)}
-                  className="px-2 py-1 bg-blue-100 hover:bg-blue-200 rounded text-xs font-medium"
+                  className="px-2.5 py-1 bg-indigo-100 hover:bg-indigo-200 rounded-lg text-xs font-medium text-indigo-700"
                 >
-                  Fokus aufheben
+                  Clear focus
                 </button>
               )}
             </div>
@@ -733,25 +741,25 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
 
       {/* Paper Detail Modal */}
       {selectedPaper && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6">
+        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6">
             <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-semibold text-gray-800 pr-4">{selectedPaper.title}</h3>
+              <h3 className="text-lg font-medium text-gray-800 pr-4">{selectedPaper.title}</h3>
               <button
                 onClick={() => setSelectedPaper(null)}
-                className="text-gray-400 hover:text-gray-600"
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-3 text-sm">
               <div>
-                <span className="font-medium text-gray-600">Autoren:</span>
+                <span className="font-medium text-gray-600">Authors:</span>
                 <p className="text-gray-800">{selectedPaper.authors}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-600">Jahr:</span>
+                <span className="font-medium text-gray-600">Year:</span>
                 <p className="text-gray-800">{selectedPaper.date?.substring(0, 4)}</p>
               </div>
               {selectedPaper.journal_name && (
@@ -791,40 +799,40 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
 
       {/* Info Modal */}
       {showInfoModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">Legende & Erklärung</h3>
+              <h3 className="text-lg font-medium text-gray-800">Legend & Explanation</h3>
               <button
                 onClick={() => setShowInfoModal(false)}
-                className="p-1 hover:bg-gray-100 rounded-full"
+                className="p-1 hover:bg-slate-100 rounded-lg transition-colors"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-slate-400" />
               </button>
             </div>
 
             <div className="space-y-4">
               {/* Node Size */}
               <div>
-                <h4 className="font-medium text-gray-700 mb-2">Knotengröße</h4>
+                <h4 className="font-medium text-gray-700 mb-2">Node Size</h4>
                 <div className="flex items-center space-x-3">
                   <div className="flex items-center space-x-2">
                     <div className="w-3 h-3 rounded-full bg-teal-500"></div>
-                    <span className="text-sm text-gray-600">Wenig Zitationen</span>
+                    <span className="text-sm text-gray-600">Few citations</span>
                   </div>
                   <div className="flex items-center space-x-2">
                     <div className="w-6 h-6 rounded-full bg-teal-500"></div>
-                    <span className="text-sm text-gray-600">Viele Zitationen</span>
+                    <span className="text-sm text-gray-600">Many citations</span>
                   </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  Je größer der Knoten, desto häufiger wurde das Paper zitiert.
+                  The larger the node, the more often the paper was cited.
                 </p>
               </div>
 
               {/* Node Color */}
               <div>
-                <h4 className="font-medium text-gray-700 mb-2">Knotenfarbe</h4>
+                <h4 className="font-medium text-gray-700 mb-2">Node Color</h4>
                 <div className="flex items-center space-x-2">
                   <div
                     className="w-32 h-4 rounded-full"
@@ -835,53 +843,53 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                   <span className="text-sm text-gray-600">2015 → 2025</span>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  Hellere Farbe = älteres Paper, dunklere Farbe = neueres Paper.
+                  Lighter color = older paper, darker color = newer paper.
                 </p>
               </div>
 
               {/* Hybrid Connections */}
               <div>
-                <h4 className="font-medium text-gray-700 mb-2">Verbindungstypen</h4>
+                <h4 className="font-medium text-gray-700 mb-2">Connection Types</h4>
                 <div className="space-y-2">
                   {/* Relational */}
                   <div className="flex items-center space-x-3">
                     <div className="w-12 h-0.5 bg-emerald-500"></div>
                     <div>
                       <span className="text-sm font-medium text-emerald-700">Relational</span>
-                      <span className="text-xs text-gray-500 ml-1">(durchgezogen)</span>
+                      <span className="text-xs text-gray-500 ml-1">(solid)</span>
                     </div>
                   </div>
                   <p className="text-xs text-gray-500 ml-15 pl-[60px]">
-                    Gemeinsame Autoren - explizite Fakten aus Neo4j
+                    Shared authors - explicit facts from Neo4j
                   </p>
 
                   {/* Semantic */}
                   <div className="flex items-center space-x-3 mt-2">
                     <div className="w-12 border-t-2 border-dashed border-indigo-500"></div>
                     <div>
-                      <span className="text-sm font-medium text-indigo-700">Semantisch</span>
-                      <span className="text-xs text-gray-500 ml-1">(gestrichelt)</span>
+                      <span className="text-sm font-medium text-indigo-700">Semantic</span>
+                      <span className="text-xs text-gray-500 ml-1">(dashed)</span>
                     </div>
                   </div>
                   <p className="text-xs text-gray-500 ml-15 pl-[60px]">
-                    Ähnlicher Inhalt - interpretiert aus Vector-Embeddings
+                    Similar content - interpreted from vector embeddings
                   </p>
                 </div>
                 <p className="text-xs text-gray-500 mt-3">
-                  Die Liniendicke zeigt die Stärke der Verbindung.
-                  Es werden max. 3 Verbindungen pro Typ und Paper angezeigt.
+                  Line thickness shows connection strength.
+                  Max. 3 connections per type and paper are shown.
                 </p>
               </div>
 
               {/* Interaction */}
               <div className="bg-gray-50 rounded-lg p-3">
-                <h4 className="font-medium text-gray-700 mb-2">Interaktion</h4>
+                <h4 className="font-medium text-gray-700 mb-2">Interaction</h4>
                 <ul className="text-xs text-gray-600 space-y-1">
-                  <li><strong>Klick auf Paper:</strong> Fokus-Modus - zeigt nur verbundene Papers</li>
-                  <li><strong>Klick auf Kante:</strong> Zeigt warum Papers verbunden sind</li>
-                  <li><strong>Klick auf Hintergrund:</strong> Fokus aufheben</li>
-                  <li><strong>Rel/Sem Buttons:</strong> Verbindungstypen ein-/ausblenden</li>
-                  <li><strong>Mausrad:</strong> Zoom rein/raus</li>
+                  <li><strong>Click on paper:</strong> Focus mode - shows only connected papers</li>
+                  <li><strong>Click on edge:</strong> Shows why papers are connected</li>
+                  <li><strong>Click on background:</strong> Clear focus</li>
+                  <li><strong>Rel/Sem buttons:</strong> Show/hide connection types</li>
+                  <li><strong>Mouse wheel:</strong> Zoom in/out</li>
                 </ul>
               </div>
 
@@ -889,11 +897,11 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
               <div className="bg-gradient-to-r from-emerald-50 to-indigo-50 rounded-lg p-3">
                 <h4 className="font-medium text-gray-800 mb-1">Hybrid Knowledge Graph</h4>
                 <p className="text-xs text-gray-700">
-                  Dieser Graph kombiniert zwei Datenquellen:
+                  This graph combines two data sources:
                 </p>
                 <ul className="text-xs text-gray-600 mt-1 space-y-0.5">
-                  <li>• <span className="text-emerald-700 font-medium">Neo4j</span>: Explizite Relationen (Autoren, Keywords)</li>
-                  <li>• <span className="text-indigo-700 font-medium">Vector DB</span>: Semantische Ähnlichkeit (Textinhalt)</li>
+                  <li>• <span className="text-emerald-700 font-medium">Neo4j</span>: Explicit relations (authors, keywords)</li>
+                  <li>• <span className="text-indigo-700 font-medium">Vector DB</span>: Semantic similarity (text content)</li>
                 </ul>
               </div>
             </div>

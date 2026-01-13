@@ -2,18 +2,18 @@ import React, { useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp, Calendar, Database, Globe } from 'lucide-react';
 
 /**
- * ContextPanel - Zeigt Kontext und Limitationen der Ergebnisse
- * Epistemisches Prinzip: KONTEXTUALISIERUNG
+ * ContextPanel - Shows context and limitations of results
+ * Epistemic Principle: CONTEXTUALIZATION
  *
  * Props:
- * - sources: array - Die verwendeten Quellen
- * - totalPapers: number - Gesamtanzahl Papers im System
- * - query: string - Die gestellte Frage
+ * - sources: array - The used sources
+ * - totalPapers: number - Total number of papers in the system
+ * - query: string - The asked question
  */
 export default function ContextPanel({ sources = [], totalPapers = 0, query = '' }) {
   const [showDetails, setShowDetails] = useState(false);
 
-  // Berechne Zeitraum aus den Quellen
+  // Calculate time range from sources
   const years = sources
     .map(s => {
       if (s.year) return parseInt(s.year);
@@ -26,55 +26,55 @@ export default function ContextPanel({ sources = [], totalPapers = 0, query = ''
   const maxYear = years.length > 0 ? Math.max(...years) : null;
   const timeRange = minYear && maxYear
     ? (minYear === maxYear ? `${minYear}` : `${minYear} - ${maxYear}`)
-    : 'Unbekannt';
+    : 'Unknown';
 
-  // Berechne Abdeckung
+  // Calculate coverage
   const coveragePercent = totalPapers > 0
     ? Math.round((sources.length / totalPapers) * 100)
     : 0;
 
-  // Sammle einzigartige Journals/Quellen
+  // Collect unique journals/sources
   const uniqueJournals = [...new Set(
     sources
       .map(s => s.journal_name)
       .filter(j => j)
   )];
 
-  // Generiere Limitationen basierend auf den Daten
+  // Generate limitations based on data
   const limitations = [];
 
   if (sources.length < 5) {
     limitations.push({
       type: 'warning',
-      text: `Nur ${sources.length} Quellen gefunden - Ergebnisse könnten unvollständig sein`
+      text: `Only ${sources.length} sources found - results may be incomplete`
     });
   }
 
   if (coveragePercent < 10 && totalPapers > 0) {
     limitations.push({
       type: 'info',
-      text: `Nur ${coveragePercent}% der ${totalPapers} Papers wurden als relevant eingestuft`
+      text: `Only ${coveragePercent}% of ${totalPapers} papers were classified as relevant`
     });
   }
 
   if (minYear && maxYear && (maxYear - minYear < 3)) {
     limitations.push({
       type: 'info',
-      text: `Quellen aus kurzem Zeitraum (${timeRange}) - begrenzte historische Perspektive`
+      text: `Sources from short time period (${timeRange}) - limited historical perspective`
     });
   }
 
   if (uniqueJournals.length === 1) {
     limitations.push({
       type: 'info',
-      text: `Alle Quellen aus einem Journal - möglicherweise einseitige Perspektive`
+      text: `All sources from one journal - possibly one-sided perspective`
     });
   }
 
-  // Standardlimitation immer zeigen
+  // Always show default limitation
   limitations.push({
     type: 'default',
-    text: 'Ergebnisse basieren nur auf den hochgeladenen Daten'
+    text: 'Results are based only on the uploaded data'
   });
 
   return (
@@ -83,7 +83,7 @@ export default function ContextPanel({ sources = [], totalPapers = 0, query = ''
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-2">
           <span className="text-lg">🌐</span>
-          <h4 className="font-semibold text-gray-800">Kontext & Limitationen</h4>
+          <h4 className="font-semibold text-gray-800">Context & Limitations</h4>
         </div>
         <button
           onClick={() => setShowDetails(!showDetails)}
@@ -93,17 +93,17 @@ export default function ContextPanel({ sources = [], totalPapers = 0, query = ''
         </button>
       </div>
 
-      {/* Schnellübersicht */}
+      {/* Quick Overview */}
       <div className="grid grid-cols-3 gap-3 mb-3">
         <div className="bg-white rounded-lg p-2 text-center border border-amber-100">
           <Calendar className="w-4 h-4 mx-auto mb-1 text-amber-600" />
-          <p className="text-xs text-gray-500">Zeitraum</p>
+          <p className="text-xs text-gray-500">Time Range</p>
           <p className="text-sm font-medium text-gray-800">{timeRange}</p>
         </div>
 
         <div className="bg-white rounded-lg p-2 text-center border border-amber-100">
           <Database className="w-4 h-4 mx-auto mb-1 text-amber-600" />
-          <p className="text-xs text-gray-500">Quellen</p>
+          <p className="text-xs text-gray-500">Sources</p>
           <p className="text-sm font-medium text-gray-800">
             {sources.length} {totalPapers > 0 ? `/ ${totalPapers}` : ''}
           </p>
@@ -116,7 +116,7 @@ export default function ContextPanel({ sources = [], totalPapers = 0, query = ''
         </div>
       </div>
 
-      {/* Limitationen (immer sichtbar) */}
+      {/* Limitations (always visible) */}
       <div className="space-y-2">
         {limitations.slice(0, showDetails ? limitations.length : 2).map((limitation, idx) => (
           <div
@@ -137,10 +137,10 @@ export default function ContextPanel({ sources = [], totalPapers = 0, query = ''
         ))}
       </div>
 
-      {/* Erweiterte Details */}
+      {/* Extended Details */}
       {showDetails && (
         <div className="mt-3 pt-3 border-t border-amber-200">
-          <p className="text-sm font-medium text-gray-700 mb-2">Verwendete Journals:</p>
+          <p className="text-sm font-medium text-gray-700 mb-2">Used Journals:</p>
           <div className="flex flex-wrap gap-1">
             {uniqueJournals.length > 0 ? (
               uniqueJournals.map((journal, idx) => (
@@ -152,14 +152,14 @@ export default function ContextPanel({ sources = [], totalPapers = 0, query = ''
                 </span>
               ))
             ) : (
-              <span className="text-sm text-gray-500">Keine Journal-Informationen verfügbar</span>
+              <span className="text-sm text-gray-500">No journal information available</span>
             )}
           </div>
 
           <div className="mt-3 p-2 bg-amber-100 rounded text-xs text-amber-800">
-            <strong>Hinweis zur Interpretation:</strong> Die Ergebnisse spiegeln nur die
-            Perspektiven der gefundenen Quellen wider. Für ein vollständiges Bild
-            konsultieren Sie weitere Literatur.
+            <strong>Interpretation note:</strong> Results reflect only the
+            perspectives of the found sources. For a complete picture,
+            consult additional literature.
           </div>
         </div>
       )}

@@ -2,13 +2,13 @@ import React from 'react';
 import { X, Users, Tag, FileText, ExternalLink } from 'lucide-react';
 
 /**
- * ConnectionModal - Zeigt Details zur Verbindung zwischen zwei Papers
- * Epistemisches Prinzip: TRANSPARENZ
+ * ConnectionModal - Shows details of connection between two papers
+ * Epistemic Principle: TRANSPARENCY
  *
  * Props:
  * - connection: { source: Paper, target: Paper, sharedAuthors: [], sharedKeywords: [], type: string, reason: string }
  * - onClose: function
- * - onPaperClick: function - Wenn User mehr Details zu einem Paper will
+ * - onPaperClick: function - When user wants more details about a paper
  */
 export default function ConnectionModal({ connection, onClose, onPaperClick }) {
   if (!connection) return null;
@@ -31,10 +31,10 @@ export default function ConnectionModal({ connection, onClose, onPaperClick }) {
                   ? 'bg-emerald-100 text-emerald-700'
                   : 'bg-indigo-100 text-indigo-700'
               }`}>
-                {isRelational ? 'Relational' : 'Semantisch'}
+                {isRelational ? 'Relational' : 'Semantic'}
               </span>
               <h3 className="text-lg font-semibold text-gray-800">
-                Verbindung zwischen Papers
+                Connection between Papers
               </h3>
             </div>
           </div>
@@ -48,7 +48,7 @@ export default function ConnectionModal({ connection, onClose, onPaperClick }) {
 
         {/* Content */}
         <div className="p-6">
-          {/* Die zwei Papers */}
+          {/* The two papers */}
           <div className="flex items-center justify-center mb-6">
             <div className="flex-1 text-center p-3 bg-green-50 rounded-lg border border-green-200">
               <FileText className="w-6 h-6 mx-auto mb-2 text-green-600" />
@@ -67,15 +67,15 @@ export default function ConnectionModal({ connection, onClose, onPaperClick }) {
             </div>
           </div>
 
-          {/* Transparenz-Erklärung */}
+          {/* Transparency Explanation */}
           {isRelational ? (
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-6">
               <div className="flex items-center mb-2">
                 <span className="text-lg mr-2">🔗</span>
-                <h4 className="font-semibold text-emerald-800">Relationale Verbindung</h4>
+                <h4 className="font-semibold text-emerald-800">Relational Connection</h4>
               </div>
               <p className="text-sm text-emerald-700 mb-3">
-                Diese Verbindung basiert auf <strong>expliziten Fakten</strong> aus dem Knowledge Graph (Neo4j).
+                This connection is based on <strong>explicit facts</strong> from the Knowledge Graph (Neo4j).
               </p>
               {reason && (
                 <div className="bg-white rounded p-3 text-sm text-emerald-700 font-medium">
@@ -87,14 +87,14 @@ export default function ConnectionModal({ connection, onClose, onPaperClick }) {
             <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-6">
               <div className="flex items-center mb-2">
                 <span className="text-lg mr-2">🧠</span>
-                <h4 className="font-semibold text-indigo-800">Semantische Verbindung</h4>
+                <h4 className="font-semibold text-indigo-800">Semantic Connection</h4>
               </div>
               <p className="text-sm text-indigo-700 mb-3">
-                Diese Verbindung basiert auf <strong>inhaltlicher Ähnlichkeit</strong> der Paper-Texte (Vector-Embeddings).
+                This connection is based on <strong>content similarity</strong> of paper texts (vector embeddings).
               </p>
               <div className="bg-white rounded p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-indigo-700 font-medium">Ähnlichkeit:</span>
+                  <span className="text-sm text-indigo-700 font-medium">Similarity:</span>
                   <span className="text-lg font-bold text-indigo-600">
                     {(strength * 100).toFixed(0)}%
                   </span>
@@ -106,19 +106,19 @@ export default function ConnectionModal({ connection, onClose, onPaperClick }) {
                   />
                 </div>
                 <p className="text-xs text-indigo-600 mt-2">
-                  Basiert auf Titel, Abstract und Keywords - interpretiert durch KI.
+                  Based on title, abstract and keywords - interpreted by AI.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Gemeinsame Autoren */}
+          {/* Shared Authors */}
           {sharedAuthors.length > 0 && (
             <div className="mb-4">
               <div className="flex items-center mb-2">
                 <Users className="w-5 h-5 text-indigo-600 mr-2" />
                 <h4 className="font-medium text-gray-800">
-                  Gemeinsame Autoren ({sharedAuthors.length})
+                  Shared Authors ({sharedAuthors.length})
                 </h4>
               </div>
               <div className="flex flex-wrap gap-2 pl-7">
@@ -132,18 +132,18 @@ export default function ConnectionModal({ connection, onClose, onPaperClick }) {
                 ))}
               </div>
               <p className="text-xs text-gray-500 mt-2 pl-7">
-                Diese Autoren haben an beiden Papers mitgearbeitet.
+                These authors have contributed to both papers.
               </p>
             </div>
           )}
 
-          {/* Gemeinsame Themen/Keywords */}
+          {/* Shared Topics/Keywords */}
           {sharedKeywords.length > 0 && (
             <div className="mb-4">
               <div className="flex items-center mb-2">
                 <Tag className="w-5 h-5 text-amber-600 mr-2" />
                 <h4 className="font-medium text-gray-800">
-                  Gemeinsame Themen ({sharedKeywords.length})
+                  Shared Topics ({sharedKeywords.length})
                 </h4>
               </div>
               <div className="flex flex-wrap gap-2 pl-7">
@@ -157,22 +157,22 @@ export default function ConnectionModal({ connection, onClose, onPaperClick }) {
                 ))}
               </div>
               <p className="text-xs text-gray-500 mt-2 pl-7">
-                Beide Papers behandeln diese Themen.
+                Both papers cover these topics.
               </p>
             </div>
           )}
 
-          {/* Keine Verbindung gefunden - nur bei relational */}
+          {/* No connection found - only for relational */}
           {isRelational && sharedAuthors.length === 0 && sharedKeywords.length === 0 && (
             <div className="text-center py-4 text-gray-500">
-              <p>Keine gemeinsamen Eigenschaften gefunden.</p>
+              <p>No shared properties found.</p>
             </div>
           )}
 
-          {/* Verbindungsstärke - nur bei relational */}
+          {/* Connection strength - only for relational */}
           {isRelational && (
             <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-medium text-gray-700 mb-2">Verbindungsstärke</h4>
+              <h4 className="font-medium text-gray-700 mb-2">Connection Strength</h4>
               <div className="flex items-center">
                 <div className="flex-1 bg-gray-200 rounded-full h-3">
                   <div
@@ -184,14 +184,14 @@ export default function ConnectionModal({ connection, onClose, onPaperClick }) {
                 </div>
                 <span className="ml-3 text-sm font-medium text-gray-600">
                   {sharedAuthors.length > 0 && sharedKeywords.length > 0
-                    ? 'Stark'
+                    ? 'Strong'
                     : sharedAuthors.length > 0 || sharedKeywords.length > 1
-                    ? 'Mittel'
-                    : 'Schwach'}
+                    ? 'Medium'
+                    : 'Weak'}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                Basiert auf: {sharedAuthors.length} gemeinsame Autoren, {sharedKeywords.length} gemeinsame Themen
+                Based on: {sharedAuthors.length} shared authors, {sharedKeywords.length} shared topics
               </p>
             </div>
           )}

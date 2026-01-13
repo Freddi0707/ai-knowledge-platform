@@ -2,15 +2,15 @@ import React, { useState, useMemo } from 'react';
 import { Filter, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 
 /**
- * FilterSidebar - Kompakte Seitenleiste für Graph-Filter
+ * FilterSidebar - Compact sidebar for graph filters
  *
  * Props:
- * - papers: array - Alle Papers
- * - filters: object - Aktuelle Filter
- * - onFilterChange: function - Callback bei Filteränderung
+ * - papers: array - All papers
+ * - filters: object - Current filters
+ * - onFilterChange: function - Callback on filter change
  */
 export default function FilterSidebar({ papers = [], filters, onFilterChange }) {
-  // Lokale Filter States
+  // Local filter states
   const [yearRange, setYearRange] = useState(filters?.yearRange || { min: 2015, max: 2025 });
   const [selectedAuthors, setSelectedAuthors] = useState(filters?.authors || []);
   const [selectedKeywords, setSelectedKeywords] = useState(filters?.keywords || []);
@@ -23,7 +23,7 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
     rankings: true
   });
 
-  // Extrahiere Optionen aus Papers
+  // Extract options from papers
   const { authors, keywords, years, vhbRankings, abdcRankings } = useMemo(() => {
     const authorsSet = new Set();
     const keywordsSet = new Set();
@@ -63,14 +63,14 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
   const minYear = years.length > 0 ? Math.min(...years) : 2015;
   const maxYear = years.length > 0 ? Math.max(...years) : 2025;
 
-  // Filter anwenden
+  // Apply filters
   const applyFilters = (newFilters) => {
     if (onFilterChange) {
       onFilterChange(newFilters);
     }
   };
 
-  // Toggle Funktionen mit sofortigem Update
+  // Toggle functions with immediate update
   const toggleAuthor = (author) => {
     const newAuthors = selectedAuthors.includes(author)
       ? selectedAuthors.filter(a => a !== author)
@@ -111,7 +111,7 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
     applyFilters({ yearRange: newRange, authors: selectedAuthors, keywords: selectedKeywords, rankings: selectedRankings });
   };
 
-  // Reset Filter
+  // Reset filters
   const resetFilters = () => {
     setYearRange({ min: minYear, max: maxYear });
     setSelectedAuthors([]);
@@ -126,29 +126,31 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
   return (
     <div className="h-full overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 bg-white border-b px-4 py-3 flex items-center justify-between">
+      <div className="sticky top-0 bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center">
-          <Filter className="w-5 h-5 text-indigo-600 mr-2" />
-          <h3 className="font-semibold text-gray-800">Filter</h3>
+          <div className="w-7 h-7 bg-indigo-100 rounded-lg flex items-center justify-center mr-2">
+            <Filter className="w-4 h-4 text-indigo-600" />
+          </div>
+          <h3 className="font-medium text-gray-800">Filters</h3>
           {activeCount > 0 && (
-            <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs">
+            <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium">
               {activeCount}
             </span>
           )}
         </div>
         <button
           onClick={resetFilters}
-          className="p-1 hover:bg-gray-100 rounded transition-colors"
-          title="Filter zurücksetzen"
+          className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+          title="Reset filters"
         >
-          <RotateCcw className="w-4 h-4 text-gray-500" />
+          <RotateCcw className="w-4 h-4 text-slate-400" />
         </button>
       </div>
 
       <div className="p-4 space-y-4">
-        {/* Zeitraum */}
+        {/* Time Range */}
         <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Zeitraum</h4>
+          <h4 className="text-sm font-medium text-slate-600 mb-2">Time Range</h4>
           <div className="flex items-center space-x-2 text-sm">
             <input
               type="number"
@@ -156,75 +158,75 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
               onChange={(e) => handleYearChange('min', e.target.value)}
               min={minYear}
               max={maxYear}
-              className="w-20 px-2 py-1 border rounded text-center"
+              className="w-20 px-2 py-1.5 border border-slate-200 rounded-lg text-center focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
-            <span className="text-gray-400">–</span>
+            <span className="text-slate-400">–</span>
             <input
               type="number"
               value={yearRange.max}
               onChange={(e) => handleYearChange('max', e.target.value)}
               min={minYear}
               max={maxYear}
-              className="w-20 px-2 py-1 border rounded text-center"
+              className="w-20 px-2 py-1.5 border border-slate-200 rounded-lg text-center focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
         </div>
 
-        {/* Autoren */}
+        {/* Authors */}
         <div>
           <button
             onClick={() => setCollapsed(c => ({ ...c, authors: !c.authors }))}
-            className="w-full flex items-center justify-between text-sm font-medium text-gray-700 mb-2"
+            className="w-full flex items-center justify-between text-sm font-medium text-slate-600 mb-2"
           >
-            <span>Autoren ({authors.length})</span>
-            {collapsed.authors ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            <span>Authors ({authors.length})</span>
+            {collapsed.authors ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
           </button>
           {!collapsed.authors && (
-            <div className="max-h-40 overflow-y-auto space-y-1">
+            <div className="max-h-40 overflow-y-auto space-y-0.5">
               {authors.slice(0, 20).map(author => (
-                <label key={author} className="flex items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
+                <label key={author} className="flex items-center text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded-lg transition-colors">
                   <input
                     type="checkbox"
                     checked={selectedAuthors.includes(author)}
                     onChange={() => toggleAuthor(author)}
-                    className="mr-2 rounded text-indigo-600"
+                    className="mr-2 rounded text-indigo-600 border-slate-300"
                   />
-                  <span className="truncate text-gray-700">
+                  <span className="truncate text-slate-700">
                     {author.length > 25 ? author.substring(0, 25) + '...' : author}
                   </span>
                 </label>
               ))}
               {authors.length > 20 && (
-                <p className="text-xs text-gray-400 p-1">+{authors.length - 20} weitere</p>
+                <p className="text-xs text-slate-400 p-1">+{authors.length - 20} more</p>
               )}
             </div>
           )}
         </div>
 
-        {/* Themen */}
+        {/* Topics */}
         <div>
           <button
             onClick={() => setCollapsed(c => ({ ...c, keywords: !c.keywords }))}
-            className="w-full flex items-center justify-between text-sm font-medium text-gray-700 mb-2"
+            className="w-full flex items-center justify-between text-sm font-medium text-slate-600 mb-2"
           >
-            <span>Themen ({keywords.length})</span>
-            {collapsed.keywords ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            <span>Topics ({keywords.length})</span>
+            {collapsed.keywords ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
           </button>
           {!collapsed.keywords && (
-            <div className="max-h-40 overflow-y-auto space-y-1">
+            <div className="max-h-40 overflow-y-auto space-y-0.5">
               {keywords.slice(0, 15).map(kw => (
-                <label key={kw} className="flex items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
+                <label key={kw} className="flex items-center text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded-lg transition-colors">
                   <input
                     type="checkbox"
                     checked={selectedKeywords.includes(kw)}
                     onChange={() => toggleKeyword(kw)}
-                    className="mr-2 rounded text-amber-600"
+                    className="mr-2 rounded text-amber-600 border-slate-300"
                   />
-                  <span className="truncate text-gray-700">{kw}</span>
+                  <span className="truncate text-slate-700">{kw}</span>
                 </label>
               ))}
               {keywords.length > 15 && (
-                <p className="text-xs text-gray-400 p-1">+{keywords.length - 15} weitere</p>
+                <p className="text-xs text-slate-400 p-1">+{keywords.length - 15} more</p>
               )}
             </div>
           )}
@@ -234,25 +236,25 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
         <div>
           <button
             onClick={() => setCollapsed(c => ({ ...c, rankings: !c.rankings }))}
-            className="w-full flex items-center justify-between text-sm font-medium text-gray-700 mb-2"
+            className="w-full flex items-center justify-between text-sm font-medium text-slate-600 mb-2"
           >
             <span>Journal Rankings</span>
-            {collapsed.rankings ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            {collapsed.rankings ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
           </button>
           {!collapsed.rankings && (
             <div className="space-y-3">
               {/* VHB */}
               <div>
-                <p className="text-xs text-gray-500 mb-1">VHB</p>
-                <div className="flex flex-wrap gap-1">
+                <p className="text-xs text-slate-500 mb-1.5">VHB</p>
+                <div className="flex flex-wrap gap-1.5">
                   {['A+', 'A', 'B', 'C'].map(r => (
                     <button
                       key={`vhb-${r}`}
                       onClick={() => toggleVhbRanking(r)}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${
+                      className={`px-2.5 py-1 text-xs rounded-lg transition-colors font-medium ${
                         selectedRankings.vhb.includes(r)
                           ? 'bg-blue-500 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
                       {r}
@@ -262,16 +264,16 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
               </div>
               {/* ABDC */}
               <div>
-                <p className="text-xs text-gray-500 mb-1">ABDC</p>
-                <div className="flex flex-wrap gap-1">
+                <p className="text-xs text-slate-500 mb-1.5">ABDC</p>
+                <div className="flex flex-wrap gap-1.5">
                   {['A*', 'A', 'B', 'C'].map(r => (
                     <button
                       key={`abdc-${r}`}
                       onClick={() => toggleAbdcRanking(r)}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${
+                      className={`px-2.5 py-1 text-xs rounded-lg transition-colors font-medium ${
                         selectedRankings.abdc.includes(r)
                           ? 'bg-purple-500 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
                       {r}
