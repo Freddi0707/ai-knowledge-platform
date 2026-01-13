@@ -5,6 +5,7 @@ import ProportionalityPanel from './components/ProportionalityPanel';
 import SourceCard from './components/SourceCard';
 import ContextPanel from './components/ContextPanel';
 import GraphExplorer from './components/GraphExplorer';
+import WelcomeScreen from './components/WelcomeScreen';
 
 // API Configuration - uses environment variable with fallback
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
@@ -216,6 +217,16 @@ export default function HybridRAGInterface() {
   // UI State
   const [uploadExpanded, setUploadExpanded] = useState(true);
 
+  // Welcome Screen State (check localStorage)
+  const [showWelcome, setShowWelcome] = useState(() => {
+    return !localStorage.getItem('welcomeScreenDismissed');
+  });
+
+  const handleDismissWelcome = () => {
+    localStorage.setItem('welcomeScreenDismissed', 'true');
+    setShowWelcome(false);
+  };
+
   // ========== DEMO MODUS ==========
   const activateDemoMode = () => {
     setPapers(DEMO_PAPERS);
@@ -297,12 +308,18 @@ export default function HybridRAGInterface() {
   };
 
   // ========== RENDER ==========
+
+  // Show welcome screen first
+  if (showWelcome) {
+    return <WelcomeScreen onDismiss={handleDismissWelcome} />;
+  }
+
   return (
     <div className="h-screen flex flex-col bg-gray-100">
       {/* Header */}
       <header className="bg-white border-b px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div>
-          <h1 className="text-xl font-bold text-gray-800">AI Knowledge Platform</h1>
+          <h1 className="text-xl font-bold text-gray-800">Knowledge Architect</h1>
           <p className="text-xs text-gray-500">
             Basierend auf den 5 epistemischen Prinzipien (Malik & Terzidis, 2025)
           </p>

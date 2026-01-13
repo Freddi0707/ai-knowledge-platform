@@ -408,14 +408,14 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                   d3AlphaMin={0.001}
                   // Distanz: starke Verbindungen = näher, schwache = weiter
                   linkDistance={(link) => {
-                    const baseDistance = 200;
+                    const baseDistance = 80;
                     const strength = link.normalizedStrength || 0.5;
-                    return baseDistance * (1.2 - strength * 0.8);
+                    return baseDistance * (1.5 - strength * 0.7);
                   }}
                   nodeRelSize={4}
                   d3Force={(d3) => {
-                    d3('charge').strength(-400);
-                    d3('collision', null);
+                    d3('charge').strength(-150); // Weniger Abstoßung
+                    d3('center').strength(0.05); // Leichter Zug zur Mitte
                   }}
                   onEngineStop={() => graphRef.current?.zoomToFit(400, 80)}
                   nodeCanvasObject={(node, ctx, globalScale) => {
