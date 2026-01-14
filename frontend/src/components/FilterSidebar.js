@@ -14,19 +14,25 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
   const [yearRange, setYearRange] = useState(filters?.yearRange || { min: 2015, max: 2025 });
   const [selectedAuthors, setSelectedAuthors] = useState(filters?.authors || []);
   const [selectedKeywords, setSelectedKeywords] = useState(filters?.keywords || []);
+  const [selectedAuthorKeywords, setSelectedAuthorKeywords] = useState(filters?.authorKeywords || []);
+  const [selectedIndexKeywords, setSelectedIndexKeywords] = useState(filters?.indexKeywords || []);
   const [selectedRankings, setSelectedRankings] = useState(filters?.rankings || { vhb: [], abdc: [] });
 
   // Collapsed States
   const [collapsed, setCollapsed] = useState({
     authors: false,
-    keywords: false,
+    keywords: true,
+    authorKeywords: false,
+    indexKeywords: true,
     rankings: true
   });
 
   // Extract options from papers
-  const { authors, keywords, years, vhbRankings, abdcRankings } = useMemo(() => {
+  const { authors, keywords, authorKeywords, indexKeywords, years, vhbRankings, abdcRankings } = useMemo(() => {
     const authorsSet = new Set();
     const keywordsSet = new Set();
+    const authorKeywordsSet = new Set();
+    const indexKeywordsSet = new Set();
     const yearsSet = new Set();
     const vhbSet = new Set();
     const abdcSet = new Set();
@@ -38,9 +44,28 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
           if (name) authorsSet.add(name);
         });
       }
+      // Legacy sources field
       if (paper.sources) {
         paper.sources.split(';').forEach(k => {
           if (k.trim()) keywordsSet.add(k.trim());
+        });
+      }
+      // Author Keywords (from author_keywords field)
+      if (paper.author_keywords) {
+        const kws = Array.isArray(paper.author_keywords)
+          ? paper.author_keywords
+          : paper.author_keywords.split(';');
+        kws.forEach(k => {
+          if (k && k.trim()) authorKeywordsSet.add(k.trim());
+        });
+      }
+      // Index/Plus Keywords (from keywords_plus field)
+      if (paper.keywords_plus) {
+        const kws = Array.isArray(paper.keywords_plus)
+          ? paper.keywords_plus
+          : paper.keywords_plus.split(';');
+        kws.forEach(k => {
+          if (k && k.trim()) indexKeywordsSet.add(k.trim());
         });
       }
       if (paper.date) {
@@ -54,6 +79,8 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
     return {
       authors: Array.from(authorsSet).sort(),
       keywords: Array.from(keywordsSet).sort(),
+      authorKeywords: Array.from(authorKeywordsSet).sort(),
+      indexKeywords: Array.from(indexKeywordsSet).sort(),
       years: Array.from(yearsSet).sort((a, b) => a - b),
       vhbRankings: Array.from(vhbSet).sort(),
       abdcRankings: Array.from(abdcSet).sort()
@@ -76,7 +103,7 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
       ? selectedAuthors.filter(a => a !== author)
       : [...selectedAuthors, author];
     setSelectedAuthors(newAuthors);
-    applyFilters({ yearRange, authors: newAuthors, keywords: selectedKeywords, rankings: selectedRankings });
+    applyFilters({ yearRange, authors: newAuthors, keywords: selectedKeywords, authorKeywords: selectedAuthorKeywords, indexKeywords: selectedIndexKeywords, rankings: selectedRankings });
   };
 
   const toggleKeyword = (keyword) => {
@@ -84,7 +111,23 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
       ? selectedKeywords.filter(k => k !== keyword)
       : [...selectedKeywords, keyword];
     setSelectedKeywords(newKeywords);
-    applyFilters({ yearRange, authors: selectedAuthors, keywords: newKeywords, rankings: selectedRankings });
+    applyFilters({ yearRange, authors: selectedAuthors, keywords: newKeywords, authorKeywords: selectedAuthorKeywords, indexKeywords: selectedIndexKeywords, rankings: selectedRankings });
+  };
+
+  const toggleAuthorKeyword = (keyword) => {
+    const newKeywords = selectedAuthorKeywords.includes(keyword)
+      ? selectedAuthorKeywords.filter(k => k !== keyword)
+      : [...selectedAuthorKeywords, keyword];
+    setSelectedAuthorKeywords(newKeywords);
+    applyFilters({ yearRange, authors: selectedAuthors, keywords: selectedKeywords, authorKeywords: newKeywords, indexKeywords: selectedIndexKeywords, rankings: selectedRankings });
+  };
+
+  const toggleIndexKeyword = (keyword) => {
+    const newKeywords = selectedIndexKeywords.includes(keyword)
+      ? selectedIndexKeywords.filter(k => k !== keyword)
+      : [...selectedIndexKeywords, keyword];
+    setSelectedIndexKeywords(newKeywords);
+    applyFilters({ yearRange, authors: selectedAuthors, keywords: selectedKeywords, authorKeywords: selectedAuthorKeywords, indexKeywords: newKeywords, rankings: selectedRankings });
   };
 
   const toggleVhbRanking = (ranking) => {
@@ -93,7 +136,7 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
       : [...selectedRankings.vhb, ranking];
     const newRankings = { ...selectedRankings, vhb: newVhb };
     setSelectedRankings(newRankings);
-    applyFilters({ yearRange, authors: selectedAuthors, keywords: selectedKeywords, rankings: newRankings });
+    applyFilters({ yearRange, authors: selectedAuthors, keywords: selectedKeywords, authorKeywords: selectedAuthorKeywords, indexKeywords: selectedIndexKeywords, rankings: newRankings });
   };
 
   const toggleAbdcRanking = (ranking) => {
@@ -102,13 +145,13 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
       : [...selectedRankings.abdc, ranking];
     const newRankings = { ...selectedRankings, abdc: newAbdc };
     setSelectedRankings(newRankings);
-    applyFilters({ yearRange, authors: selectedAuthors, keywords: selectedKeywords, rankings: newRankings });
+    applyFilters({ yearRange, authors: selectedAuthors, keywords: selectedKeywords, authorKeywords: selectedAuthorKeywords, indexKeywords: selectedIndexKeywords, rankings: newRankings });
   };
 
   const handleYearChange = (type, value) => {
     const newRange = { ...yearRange, [type]: parseInt(value) };
     setYearRange(newRange);
-    applyFilters({ yearRange: newRange, authors: selectedAuthors, keywords: selectedKeywords, rankings: selectedRankings });
+    applyFilters({ yearRange: newRange, authors: selectedAuthors, keywords: selectedKeywords, authorKeywords: selectedAuthorKeywords, indexKeywords: selectedIndexKeywords, rankings: selectedRankings });
   };
 
   // Reset filters
@@ -116,11 +159,14 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
     setYearRange({ min: minYear, max: maxYear });
     setSelectedAuthors([]);
     setSelectedKeywords([]);
+    setSelectedAuthorKeywords([]);
+    setSelectedIndexKeywords([]);
     setSelectedRankings({ vhb: [], abdc: [] });
-    applyFilters({ yearRange: { min: minYear, max: maxYear }, authors: [], keywords: [], rankings: { vhb: [], abdc: [] } });
+    applyFilters({ yearRange: { min: minYear, max: maxYear }, authors: [], keywords: [], authorKeywords: [], indexKeywords: [], rankings: { vhb: [], abdc: [] } });
   };
 
   const activeCount = selectedAuthors.length + selectedKeywords.length +
+    selectedAuthorKeywords.length + selectedIndexKeywords.length +
     selectedRankings.vhb.length + selectedRankings.abdc.length;
 
   return (
@@ -203,34 +249,67 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
           )}
         </div>
 
-        {/* Topics */}
-        <div>
-          <button
-            onClick={() => setCollapsed(c => ({ ...c, keywords: !c.keywords }))}
-            className="w-full flex items-center justify-between text-sm font-medium text-slate-600 mb-2"
-          >
-            <span>Topics ({keywords.length})</span>
-            {collapsed.keywords ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
-          </button>
-          {!collapsed.keywords && (
-            <div className="max-h-40 overflow-y-auto space-y-0.5">
-              {keywords.slice(0, 15).map(kw => (
-                <label key={kw} className="flex items-center text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded-lg transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={selectedKeywords.includes(kw)}
-                    onChange={() => toggleKeyword(kw)}
-                    className="mr-2 rounded text-amber-600 border-slate-300"
-                  />
-                  <span className="truncate text-slate-700">{kw}</span>
-                </label>
-              ))}
-              {keywords.length > 15 && (
-                <p className="text-xs text-slate-400 p-1">+{keywords.length - 15} more</p>
-              )}
-            </div>
-          )}
-        </div>
+        {/* Author Keywords */}
+        {authorKeywords.length > 0 && (
+          <div>
+            <button
+              onClick={() => setCollapsed(c => ({ ...c, authorKeywords: !c.authorKeywords }))}
+              className="w-full flex items-center justify-between text-sm font-medium text-slate-600 mb-2"
+            >
+              <span>Author Keywords ({authorKeywords.length})</span>
+              {collapsed.authorKeywords ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
+            </button>
+            {!collapsed.authorKeywords && (
+              <div className="max-h-40 overflow-y-auto space-y-0.5">
+                {authorKeywords.slice(0, 20).map(kw => (
+                  <label key={kw} className="flex items-center text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded-lg transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={selectedAuthorKeywords.includes(kw)}
+                      onChange={() => toggleAuthorKeyword(kw)}
+                      className="mr-2 rounded text-emerald-600 border-slate-300"
+                    />
+                    <span className="truncate text-slate-700">{kw}</span>
+                  </label>
+                ))}
+                {authorKeywords.length > 20 && (
+                  <p className="text-xs text-slate-400 p-1">+{authorKeywords.length - 20} more</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Keywords (from Keywords Plus / Index Keywords) */}
+        {indexKeywords.length > 0 && (
+          <div>
+            <button
+              onClick={() => setCollapsed(c => ({ ...c, indexKeywords: !c.indexKeywords }))}
+              className="w-full flex items-center justify-between text-sm font-medium text-slate-600 mb-2"
+            >
+              <span>Keywords ({indexKeywords.length})</span>
+              {collapsed.indexKeywords ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
+            </button>
+            {!collapsed.indexKeywords && (
+              <div className="max-h-40 overflow-y-auto space-y-0.5">
+                {indexKeywords.slice(0, 20).map(kw => (
+                  <label key={kw} className="flex items-center text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded-lg transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={selectedIndexKeywords.includes(kw)}
+                      onChange={() => toggleIndexKeyword(kw)}
+                      className="mr-2 rounded text-amber-600 border-slate-300"
+                    />
+                    <span className="truncate text-slate-700">{kw}</span>
+                  </label>
+                ))}
+                {indexKeywords.length > 20 && (
+                  <p className="text-xs text-slate-400 p-1">+{indexKeywords.length - 20} more</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Rankings */}
         <div>

@@ -45,12 +45,16 @@ REQUIRED_COLUMNS = [
     "authors",
     "abstract",
     "date",
-    "source",
-    "vhbRanking",
-    "abdcRanking",   # legacy typo in upstream export
     "journal_name",
     "doi",
 ]
+
+# Columns that will be added with defaults if missing
+COLUMNS_WITH_DEFAULTS = {
+    "source": "WoS",           # Default source
+    "vhbRanking": "N/A",       # Default ranking
+    "abdcRanking": "N/A",      # Default ranking
+}
 
 OPTIONAL_COLUMNS = {
     "sources",          # often used as keywords / subject areas (if present)
@@ -60,6 +64,33 @@ OPTIONAL_COLUMNS = {
     "url",
     "citations",
     "journal_quartile",
+    "author_keywords",  # Author-provided keywords
+    "keywords_plus",    # System/index keywords (WoS: Keywords Plus, Scopus: Index Keywords)
+}
+
+# Column aliases for raw WoS/Scopus exports (lowercase keys for case-insensitive matching)
+COLUMN_ALIASES = {
+    # WoS format
+    'article title': 'title',
+    'author full names': 'authors',
+    'authors': 'authors',
+    'abstract': 'abstract',
+    'publication year': 'date',
+    'source title': 'journal_name',
+    'doi': 'doi',
+    'doi link': 'url',
+    'times cited, wos core': 'citations',
+    'times cited, all databases': 'citations',
+    'author keywords': 'author_keywords',
+    'keywords plus': 'keywords_plus',
+    'issn': 'issn',
+    'eissn': 'eissn',
+    # Scopus format
+    'title': 'title',
+    'year': 'date',
+    'index keywords': 'keywords_plus',
+    'cited by': 'citations',
+    'link': 'url',
 }
 
 
@@ -101,6 +132,17 @@ def load_and_parse_standard_data(file_path: str) -> pd.DataFrame:
     # Normalize headers
     df.columns = [normalize_col(c) for c in df.columns]
 
+    # Apply column aliases (for raw WoS/Scopus exports) - case insensitive
+    rename_map = {}
+    for c in df.columns:
+        c_lower = c.lower()
+        if c_lower in COLUMN_ALIASES:
+            rename_map[c] = COLUMN_ALIASES[c_lower]
+    df.rename(columns=rename_map, inplace=True)
+
+    # Handle duplicate columns (keep first occurrence)
+    df = df.loc[:, ~df.columns.duplicated()]
+
     # Debug: show exact representations
     print("🧾 Normalized columns:", [repr(c) for c in df.columns])
 
@@ -112,8 +154,17 @@ def load_and_parse_standard_data(file_path: str) -> pd.DataFrame:
             f"Found columns: {list(df.columns)}"
         )
 
+    # Add default values for missing columns
+    for col, default_val in COLUMNS_WITH_DEFAULTS.items():
+        if col not in df.columns:
+            df[col] = default_val
+            print(f"📝 Added default column '{col}' = '{default_val}'")
+
     # Keep only known columns (stable order)
-    selected_columns = REQUIRED_COLUMNS + [c for c in OPTIONAL_COLUMNS if c in df.columns]
+    all_known_columns = REQUIRED_COLUMNS + list(COLUMNS_WITH_DEFAULTS.keys())
+    selected_columns = all_known_columns + [c for c in OPTIONAL_COLUMNS if c in df.columns]
+    # Only select columns that exist
+    selected_columns = [c for c in selected_columns if c in df.columns]
     df = df[selected_columns]
 
     # Clean values
@@ -192,6 +243,19 @@ def split_keywords(raw: str) -> List[str]:
             out.append(p)
             seen.add(p.lower())
     return out
+
+
+def parse_keyword_field(raw: str) -> List[str]:
+    """
+    Parse a keyword field (semicolon-separated) into a list of keywords.
+    Used for author_keywords and keywords_plus columns.
+    """
+    s = safe_str(raw).strip()
+    if not s:
+        return []
+    # Split on semicolon (standard separator in WoS/Scopus exports)
+    parts = [p.strip() for p in s.split(";") if p.strip()]
+    return parts
 
 
 def ensure_dir(path: str) -> None:

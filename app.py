@@ -26,6 +26,7 @@ from backend.etl import (
     safe_str,
     split_authors,
     split_keywords,
+    parse_keyword_field,
     make_stable_id
 )
 from backend.search import (
@@ -137,24 +138,63 @@ def auto_import_to_neo4j(df):
                         MERGE (a)-[:AUTHORED]->(p)
                     """, {"author_id": author_id, "paper_id": doi})
 
-            # Import Keywords (if available)
-            if "sources" in df.columns:
-                print("🏷️ Importing keywords...")
-                for _, row in df.iterrows():
-                    doi = safe_str(row.get("doi", "")).strip()
-                    if not doi:
-                        continue
+            # Import Keywords (author_keywords and keywords_plus)
+            print("🏷️ Importing keywords...")
+            for _, row in df.iterrows():
+                doi = safe_str(row.get("doi", "")).strip()
+                if not doi:
+                    continue
 
+                # Process author keywords
+                author_kw_raw = row.get("author_keywords", "")
+                if isinstance(author_kw_raw, str):
+                    author_keywords = parse_keyword_field(author_kw_raw)
+                elif isinstance(author_kw_raw, list):
+                    author_keywords = author_kw_raw
+                else:
+                    author_keywords = []
+
+                for kw in author_keywords:
+                    kw_id = make_stable_id("KEYWORD", kw)
+                    session.run("""
+                        MERGE (k:Keyword {keyword_id: $keyword_id})
+                        SET k.name = $name, k.type = 'author'
+                    """, {"keyword_id": kw_id, "name": kw})
+                    session.run("""
+                        MATCH (p:Paper {paper_id: $paper_id})
+                        MATCH (k:Keyword {keyword_id: $keyword_id})
+                        MERGE (p)-[:HAS_KEYWORD {type: 'author'}]->(k)
+                    """, {"paper_id": doi, "keyword_id": kw_id})
+
+                # Process keywords plus / index keywords
+                kw_plus_raw = row.get("keywords_plus", "")
+                if isinstance(kw_plus_raw, str):
+                    keywords_plus = parse_keyword_field(kw_plus_raw)
+                elif isinstance(kw_plus_raw, list):
+                    keywords_plus = kw_plus_raw
+                else:
+                    keywords_plus = []
+
+                for kw in keywords_plus:
+                    kw_id = make_stable_id("KEYWORD", kw)
+                    session.run("""
+                        MERGE (k:Keyword {keyword_id: $keyword_id})
+                        SET k.name = $name, k.type = 'index'
+                    """, {"keyword_id": kw_id, "name": kw})
+                    session.run("""
+                        MATCH (p:Paper {paper_id: $paper_id})
+                        MATCH (k:Keyword {keyword_id: $keyword_id})
+                        MERGE (p)-[:HAS_KEYWORD {type: 'index'}]->(k)
+                    """, {"paper_id": doi, "keyword_id": kw_id})
+
+                # Also process legacy 'sources' field if present (for backward compatibility)
+                if "sources" in df.columns:
                     for kw in split_keywords(row.get("sources", "")):
                         kw_id = make_stable_id("KEYWORD", kw)
-
-                        # Create keyword
                         session.run("""
                             MERGE (k:Keyword {keyword_id: $keyword_id})
                             SET k.name = $name
                         """, {"keyword_id": kw_id, "name": kw})
-
-                        # Create relationship
                         session.run("""
                             MATCH (p:Paper {paper_id: $paper_id})
                             MATCH (k:Keyword {keyword_id: $keyword_id})

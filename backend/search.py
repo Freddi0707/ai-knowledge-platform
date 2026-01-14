@@ -179,6 +179,11 @@ Cypher Query:"""
             print(f"   [DEBUG] Found 'wrote' in query")
             return True
 
+        # Check for keyword-related queries
+        if any(kw in query_lower for kw in ["keyword", "topic", "about", "related to", "papers on", "research on"]):
+            print(f"   [DEBUG] Found keyword/topic pattern in query")
+            return True
+
         print(f"   [DEBUG] No graph patterns matched in: {query_lower}")
         return False
 
@@ -325,6 +330,52 @@ Cypher Query:"""
                     result_text = f"All authors in database ({len(results)} total):\n"
                     for r in results:
                         result_text += f"\n• {r['author']}"
+                    return {"success": True, "cypher": cypher, "result": result_text}
+
+            # Pattern 5: Papers by keyword/topic
+            if any(phrase in query_lower for phrase in ["papers about", "papers on", "research on", "topic", "keyword"]):
+                # Extract the topic/keyword from query
+                import re
+                topic_match = re.search(r'(?:about|on|topic|keyword)[:\s]+["\']?([^"\'?,]+)["\']?', query_lower)
+                if topic_match:
+                    topic = topic_match.group(1).strip()
+                else:
+                    # Try to extract any quoted term or the last significant word
+                    words = query_lower.replace("?", "").split()
+                    topic = words[-1] if words else None
+
+                if topic:
+                    cypher = f"""
+                    MATCH (p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
+                    WHERE toLower(k.name) CONTAINS toLower($topic)
+                    RETURN DISTINCT p.title as title, p.doi as doi, collect(k.name) as keywords
+                    LIMIT 10
+                    """
+                    results = self.graph.query(cypher, {"topic": topic})
+
+                    if results:
+                        result_text = f"Found {len(results)} paper(s) related to '{topic}':\n"
+                        for r in results:
+                            keywords_str = ", ".join(r['keywords'][:3]) if r['keywords'] else ""
+                            result_text += f"\n• '{r['title']}' (keywords: {keywords_str})"
+                        return {"success": True, "cypher": cypher, "result": result_text}
+
+            # Pattern 6: List all keywords/topics
+            if any(phrase in query_lower for phrase in ["all keywords", "list keywords", "all topics", "list topics", "what topics"]):
+                cypher = """
+                MATCH (k:Keyword)<-[:HAS_KEYWORD]-(p:Paper)
+                WITH k.name as keyword, k.type as type, count(p) as paper_count
+                RETURN keyword, type, paper_count
+                ORDER BY paper_count DESC
+                LIMIT 30
+                """
+                results = self.graph.query(cypher)
+
+                if results:
+                    result_text = f"Top keywords/topics ({len(results)} shown):\n"
+                    for r in results:
+                        type_label = f" [{r['type']}]" if r.get('type') else ""
+                        result_text += f"\n• {r['keyword']}{type_label} ({r['paper_count']} papers)"
                     return {"success": True, "cypher": cypher, "result": result_text}
 
             # Fallback: Use LLM to generate Cypher

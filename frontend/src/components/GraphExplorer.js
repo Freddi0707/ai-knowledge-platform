@@ -21,6 +21,8 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
     yearRange: { min: 2015, max: 2025 },
     authors: [],
     keywords: [],
+    authorKeywords: [],
+    indexKeywords: [],
     rankings: { vhb: [], abdc: [] }
   });
   const [selectedConnection, setSelectedConnection] = useState(null);
@@ -90,10 +92,30 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
         }
       }
 
-      // Keywords Filter
+      // Keywords Filter (legacy sources field)
       if (filters.keywords.length > 0) {
         const paperKeywords = paper.sources?.split(';').map(k => k.trim()) || [];
         if (!filters.keywords.some(k => paperKeywords.includes(k))) {
+          return false;
+        }
+      }
+
+      // Author Keywords Filter
+      if (filters.authorKeywords && filters.authorKeywords.length > 0) {
+        const paperAuthorKws = Array.isArray(paper.author_keywords)
+          ? paper.author_keywords
+          : (paper.author_keywords?.split(';').map(k => k.trim()) || []);
+        if (!filters.authorKeywords.some(k => paperAuthorKws.includes(k))) {
+          return false;
+        }
+      }
+
+      // Index Keywords Filter
+      if (filters.indexKeywords && filters.indexKeywords.length > 0) {
+        const paperIndexKws = Array.isArray(paper.keywords_plus)
+          ? paper.keywords_plus
+          : (paper.keywords_plus?.split(';').map(k => k.trim()) || []);
+        if (!filters.indexKeywords.some(k => paperIndexKws.includes(k))) {
           return false;
         }
       }
