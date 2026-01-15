@@ -598,7 +598,7 @@ export default function HybridRAGInterface() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder="e.g. What is Customer Experience?"
+                placeholder="Ask about authors, topics, or concepts..."
                 className="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-slate-50 focus:bg-white transition-colors"
                 disabled={papers.length === 0}
               />
@@ -617,16 +617,25 @@ export default function HybridRAGInterface() {
 
             {/* Example Questions */}
             {papers.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {["Customer Experience?", "Papers by Klaus?", "AI Research?"].map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => setQuery(q)}
-                    className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-indigo-100 hover:text-indigo-700 transition-colors"
-                  >
-                    {q}
-                  </button>
-                ))}
+              <div className="mt-3 space-y-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    "Papers by Smith",
+                    "Who collaborated with Davis?",
+                    "What topics are covered?",
+                    "Papers about digital transformation",
+                    "List all authors",
+                    "What is strategic management?"
+                  ].map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => setQuery(q)}
+                      className="text-xs px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-indigo-100 hover:text-indigo-700 transition-colors"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>

@@ -192,23 +192,16 @@ Cypher Query:"""
 
         query_lower = query.lower()
 
-        # Check for "written" in any form
-        if "written" in query_lower:
-            print(f"   [DEBUG] Found 'written' in query")
-            return True
-
-        # Check for "author" keyword
-        if "author" in query_lower:
-            print(f"   [DEBUG] Found 'author' in query")
-            return True
-
-        # Check for "wrote" keyword
-        if "wrote" in query_lower:
-            print(f"   [DEBUG] Found 'wrote' in query")
-            return True
+        # Check for author-related patterns
+        author_patterns = ["written", "wrote", "author", "papers by", "paper by", "works by",
+                          "collaborated", "co-author", "coauthor"]
+        for pattern in author_patterns:
+            if pattern in query_lower:
+                print(f"   [DEBUG] Found '{pattern}' in query")
+                return True
 
         # Check for keyword-related queries
-        if any(kw in query_lower for kw in ["keyword", "topic", "about", "related to", "papers on", "research on"]):
+        if any(kw in query_lower for kw in ["keyword", "topic", "about", "related to", "papers on", "paper on", "research on"]):
             print(f"   [DEBUG] Found keyword/topic pattern in query")
             return True
 
@@ -243,32 +236,44 @@ Cypher Query:"""
 
             # Extract author name more intelligently
             def extract_author_name(text):
-                """Extract author name from query"""
+                """Extract author name from query - case insensitive"""
                 import re
 
-                # Pattern 1: "by [Name]" or "written by [Name]"
-                match = re.search(r'\b(?:by|from|of)\s+([A-Z][a-zäöüß]+(?:\s+[A-Z][a-zäöüß]+)*)', text)
+                # Pattern 1: "by [Name]" - case insensitive, capture word(s) after "by"
+                match = re.search(r'\b(?:by|from|of)\s+([a-zA-ZäöüßÄÖÜ]+(?:\s+[a-zA-ZäöüßÄÖÜ]+)*)', text, re.IGNORECASE)
                 if match:
-                    return match.group(1)
+                    name = match.group(1).strip("?,.")
+                    # Filter out common words that aren't names
+                    if name.lower() not in ['the', 'a', 'an', 'same', 'this', 'that']:
+                        return name
 
-                # Pattern 2: Just find any capitalized name
+                # Pattern 2: Find any word that looks like a name (not a common word)
+                common_words = {'which', 'who', 'what', 'paper', 'papers', 'author', 'authors',
+                               'written', 'wrote', 'the', 'a', 'an', 'is', 'are', 'was', 'were',
+                               'find', 'show', 'list', 'all', 'about', 'on', 'in', 'by', 'from'}
                 words = text.split()
                 for i, word in enumerate(words):
-                    if word and word[0].isupper() and word.lower() not in ['which', 'who', 'what', 'paper', 'papers',
-                                                                           'author', 'authors']:
-                        # Collect consecutive capitalized words
-                        name_parts = [word.strip("?,.")]
-                        j = i + 1
-                        while j < len(words) and words[j] and words[j][0].isupper():
-                            name_parts.append(words[j].strip("?,."))
-                            j += 1
-                        return " ".join(name_parts)
+                    clean_word = word.strip("?,.")
+                    if clean_word and clean_word.lower() not in common_words:
+                        # Check if it could be a name (not all lowercase common word)
+                        if clean_word[0].isupper() or (len(clean_word) > 2 and clean_word.lower() == clean_word):
+                            # Collect consecutive potential name parts
+                            name_parts = [clean_word]
+                            j = i + 1
+                            while j < len(words):
+                                next_word = words[j].strip("?,.")
+                                if next_word and next_word.lower() not in common_words:
+                                    name_parts.append(next_word)
+                                    j += 1
+                                else:
+                                    break
+                            return " ".join(name_parts)
 
                 return None
 
             # Pattern 1: "papers by [author]" or "written by [author]"
             if any(phrase in query_lower for phrase in
-                   ["papers by", "written by", "works by", "paper were written", "paper was written"]):
+                   ["papers by", "paper by", "written by", "works by", "paper were written", "paper was written"]):
                 author_name = extract_author_name(query)
 
                 if author_name:
