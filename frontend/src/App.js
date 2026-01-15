@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp, Home } from 'lucide-react';
+import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp, Home, Eye, Clock, Code } from 'lucide-react';
 import TransparencyPanel from './components/TransparencyPanel';
 import ProportionalityPanel from './components/ProportionalityPanel';
 import SourceCard from './components/SourceCard';
@@ -133,6 +133,12 @@ const DEMO_RESULTS = {
 
 function AnswerWithCitations({ answer, sources = [] }) {
   const [hoveredCitation, setHoveredCitation] = useState(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+  // Track mouse position for tooltip
+  const handleMouseMove = (e) => {
+    setMousePos({ x: e.clientX, y: e.clientY });
+  };
 
   // Parse answer and replace [1], [2], etc. with interactive elements
   const renderAnswerWithCitations = () => {
@@ -151,27 +157,14 @@ function AnswerWithCitations({ answer, sources = [] }) {
           return (
             <span
               key={index}
-              className="relative inline-block"
+              className="inline-block"
               onMouseEnter={() => setHoveredCitation(citationNum)}
               onMouseLeave={() => setHoveredCitation(null)}
+              onMouseMove={handleMouseMove}
             >
               <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-semibold bg-indigo-100 text-indigo-700 rounded cursor-pointer hover:bg-indigo-200 transition-colors mx-0.5">
                 {citationNum}
               </span>
-              {hoveredCitation === citationNum && (
-                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-72 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-xl z-50">
-                  <p className="font-semibold mb-1 line-clamp-2">{source.title}</p>
-                  <p className="text-gray-300 text-xs">
-                    {source.authors?.split(';')[0]?.trim()}, {source.date?.substring(0, 4)}
-                  </p>
-                  {source.journal_name && (
-                    <p className="text-gray-400 text-xs italic mt-1">{source.journal_name}</p>
-                  )}
-                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
-                    <div className="border-4 border-transparent border-t-gray-900"></div>
-                  </div>
-                </div>
-              )}
             </span>
           );
         }
@@ -180,7 +173,156 @@ function AnswerWithCitations({ answer, sources = [] }) {
     });
   };
 
-  return <>{renderAnswerWithCitations()}</>;
+  // Get hovered source for tooltip
+  const hoveredSource = hoveredCitation ? sources[hoveredCitation - 1] : null;
+
+  return (
+    <>
+      {renderAnswerWithCitations()}
+      {/* Floating tooltip at mouse position */}
+      {hoveredSource && (
+        <div
+          className="fixed w-80 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-xl z-[9999] pointer-events-none"
+          style={{
+            left: mousePos.x + 15,
+            top: mousePos.y + 15,
+            maxWidth: 'calc(100vw - 40px)'
+          }}
+        >
+          <p className="font-semibold mb-1 line-clamp-2">{hoveredSource.title}</p>
+          <p className="text-gray-300 text-xs">
+            {hoveredSource.authors?.split(';')[0]?.trim()}, {hoveredSource.year || hoveredSource.date?.substring(0, 4)}
+          </p>
+          {hoveredSource.journal_name && (
+            <p className="text-gray-400 text-xs italic mt-1">{hoveredSource.journal_name}</p>
+          )}
+          {(hoveredSource.vhbRanking || hoveredSource.abdcRanking) && (
+            <div className="flex gap-2 mt-2">
+              {hoveredSource.vhbRanking && hoveredSource.vhbRanking !== 'N/A' && (
+                <span className="px-1.5 py-0.5 bg-blue-600 rounded text-xs">VHB: {hoveredSource.vhbRanking}</span>
+              )}
+              {hoveredSource.abdcRanking && hoveredSource.abdcRanking !== 'N/A' && (
+                <span className="px-1.5 py-0.5 bg-purple-600 rounded text-xs">ABDC: {hoveredSource.abdcRanking}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ========== QUERY TRANSPARENCY COMPONENT ==========
+
+function QueryTransparencyPanel({ transparency, cypherQuery }) {
+  const [expanded, setExpanded] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+
+  if (!transparency || !transparency.steps) return null;
+
+  return (
+    <div className="bg-slate-50 rounded-xl border border-slate-200">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between p-3 text-left hover:bg-slate-100 rounded-xl transition-colors"
+      >
+        <div className="flex items-center">
+          <Eye className="w-4 h-4 text-slate-500 mr-2" />
+          <span className="text-sm font-medium text-slate-700">Query Transparency</span>
+          {transparency.timing?.total && (
+            <span className="ml-2 px-2 py-0.5 bg-slate-200 text-slate-600 rounded-full text-xs">
+              {transparency.timing.total}s total
+            </span>
+          )}
+        </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-3">
+          {/* Methods Used */}
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">Methods Used:</p>
+            <div className="flex flex-wrap gap-1">
+              {transparency.methods_used?.map((method, i) => (
+                <span key={i} className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs">
+                  {method}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Steps */}
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-2">Processing Steps:</p>
+            <div className="space-y-2">
+              {transparency.steps?.map((step, i) => (
+                <div key={i} className="bg-white rounded-lg p-2 border border-slate-100">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-700">{step.name}</span>
+                    {transparency.timing?.[step.name.toLowerCase().replace(' ', '_')] && (
+                      <span className="flex items-center text-xs text-slate-400">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {transparency.timing[step.name.toLowerCase().replace(' ', '_')]}s
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">{step.description}</p>
+                  <p className="text-xs text-green-600 mt-0.5">{step.result}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Timing Breakdown */}
+          {transparency.timing && (
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-1">Timing:</p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {transparency.timing.semantic_search && (
+                  <span className="text-slate-600">Semantic: {transparency.timing.semantic_search}s</span>
+                )}
+                {transparency.timing.graph_search && (
+                  <span className="text-slate-600">Graph: {transparency.timing.graph_search}s</span>
+                )}
+                {transparency.timing.llm_generation && (
+                  <span className="text-slate-600">LLM: {transparency.timing.llm_generation}s</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Cypher Query */}
+          {cypherQuery && (
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-1">Cypher Query:</p>
+              <code className="text-xs text-slate-600 block bg-white p-2 rounded-lg border border-slate-200 overflow-x-auto whitespace-pre-wrap">
+                {cypherQuery}
+              </code>
+            </div>
+          )}
+
+          {/* LLM Prompt Toggle */}
+          {transparency.prompt && (
+            <div>
+              <button
+                onClick={() => setShowPrompt(!showPrompt)}
+                className="flex items-center text-xs text-indigo-600 hover:text-indigo-800"
+              >
+                <Code className="w-3 h-3 mr-1" />
+                {showPrompt ? 'Hide LLM Prompt' : 'Show LLM Prompt'}
+              </button>
+              {showPrompt && (
+                <pre className="mt-2 text-xs text-slate-600 bg-white p-2 rounded-lg border border-slate-200 overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto">
+                  {transparency.prompt}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ========== MAIN COMPONENT ==========
@@ -544,15 +686,11 @@ export default function HybridRAGInterface() {
                   </div>
                 </div>
 
-                {/* Cypher Query - Traceability */}
-                {results.cypherQuery && (
-                  <div className="bg-slate-50 rounded-xl p-3">
-                    <p className="text-xs font-medium text-slate-500 mb-1">Cypher Query:</p>
-                    <code className="text-xs text-slate-600 block bg-white p-2 rounded-lg border border-slate-200 overflow-x-auto">
-                      {results.cypherQuery}
-                    </code>
-                  </div>
-                )}
+                {/* Query Transparency Panel */}
+                <QueryTransparencyPanel
+                  transparency={results.transparency}
+                  cypherQuery={results.cypherQuery}
+                />
 
                 {/* Epistemic Panels */}
                 <TransparencyPanel confidence={results.confidence} sources={results.sources} />

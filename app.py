@@ -315,7 +315,7 @@ def search():
         # Perform hybrid search
         result = search_engine.hybrid_answer(query)
 
-        # Format response
+        # Format response with all paper details
         response = {
             'answer': result['answer'],
             'confidence': result['best_score'],
@@ -324,13 +324,22 @@ def search():
                     'title': meta.get('title'),
                     'authors': meta.get('authors'),
                     'year': meta.get('year'),
+                    'date': meta.get('year'),
                     'similarity': result['similarities'][i],
-                    'link': meta.get('access_link')
+                    'link': meta.get('access_link'),
+                    'doi': meta.get('doi'),
+                    'url': meta.get('access_link'),
+                    'abstract': meta.get('abstract', meta.get('abstract_snippet', '')),
+                    'journal_name': meta.get('journal'),
+                    'vhbRanking': meta.get('vhbRanking'),
+                    'abdcRanking': meta.get('abdcRanking'),
+                    'citations': meta.get('citations')
                 }
                 for i, meta in enumerate(result['sources'])
             ],
             'graphUsed': result.get('graph_used', False),
-            'cypherQuery': result.get('cypher_query')
+            'cypherQuery': result.get('cypher_query'),
+            'transparency': result.get('transparency', {})
         }
 
         return jsonify(response)

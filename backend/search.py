@@ -12,6 +12,7 @@ from langchain_ollama import OllamaLLM
 from langchain_community.graphs import Neo4jGraph
 from langchain_community.chains.graph_qa.cypher import GraphCypherQAChain
 from langchain_core.prompts import PromptTemplate
+from neo4j import GraphDatabase  # Plain driver for direct Cypher (no APOC needed)
 from backend.etl import safe_str
 
 
@@ -38,7 +39,7 @@ Journal: {row["journal_name"]}
 Year: {row["date"]}
 """.strip()
 
-        # Metadata
+        # Metadata - include all fields for search results
         snippet = abstract[:200].strip() + ("..." if len(abstract) > 200 else "")
 
         contents.append(content)
@@ -50,7 +51,11 @@ Year: {row["date"]}
             "doi": doi,
             "url": link,
             "abstract_snippet": snippet,
-            "access_link": link
+            "abstract": abstract,  # Full abstract
+            "access_link": link,
+            "vhbRanking": safe_str(row.get("vhbRanking", "")),
+            "abdcRanking": safe_str(row.get("abdcRanking", "")),
+            "citations": safe_str(row.get("citations", ""))
         })
         ids.append(doi)
 
@@ -121,13 +126,27 @@ class HybridSearchEngine:
         self.collection = PersistentClient(path=db_path).get_collection(collection_name)
         print("✅ Vector store connected")
 
-        # Knowledge graph
+        # Knowledge graph - use plain neo4j driver for direct Cypher (no APOC needed)
+        self.graph_chain = None
+        self.neo4j_driver = None
         try:
-            self.graph = Neo4jGraph(url=neo4j_url, username=neo4j_user, password=neo4j_pass)
+            # Use plain neo4j driver - doesn't require APOC
+            self.neo4j_driver = GraphDatabase.driver(neo4j_url, auth=(neo4j_user, neo4j_pass))
 
-            cypher_prompt = PromptTemplate(
-                input_variables=["schema", "question"],
-                template="""You are a Neo4j expert. Write a Cypher query for this question.
+            # Test connection with a simple query
+            with self.neo4j_driver.session() as session:
+                result = session.run("RETURN 1 as test")
+                result.single()
+
+            self.graph_available = True
+            print("✅ Knowledge graph connected (direct Cypher)")
+
+            # Optionally try LangChain QA chain (needs APOC - usually unavailable)
+            try:
+                self.graph = Neo4jGraph(url=neo4j_url, username=neo4j_user, password=neo4j_pass)
+                cypher_prompt = PromptTemplate(
+                    input_variables=["schema", "question"],
+                    template="""You are a Neo4j expert. Write a Cypher query for this question.
 
 Schema: {schema}
 Question: {question}
@@ -139,22 +158,31 @@ Rules:
 - Return only the Cypher query
 
 Cypher Query:"""
-            )
+                )
 
-            self.graph_chain = GraphCypherQAChain.from_llm(
-                llm=self.llm,
-                graph=self.graph,
-                cypher_prompt=cypher_prompt,
-                verbose=True,
-                return_intermediate_steps=True
-            )
-
-            self.graph_available = True
-            print("✅ Knowledge graph connected")
+                self.graph_chain = GraphCypherQAChain.from_llm(
+                    llm=self.llm,
+                    graph=self.graph,
+                    cypher_prompt=cypher_prompt,
+                    verbose=True,
+                    return_intermediate_steps=True
+                )
+                print("✅ LangChain QA Chain available (APOC found)")
+            except Exception as chain_error:
+                # APOC not available - that's OK, we can still use direct Cypher
+                print(f"ℹ️ LangChain QA Chain unavailable (APOC plugin not installed)")
 
         except Exception as e:
-            print(f"⚠️ Neo4j unavailable: {e}")
+            print(f"⚠️ Neo4j connection failed: {e}")
             self.graph_available = False
+
+    def _run_cypher(self, cypher: str, params: dict = None) -> list:
+        """Run Cypher query using plain neo4j driver"""
+        if not self.neo4j_driver:
+            return []
+        with self.neo4j_driver.session() as session:
+            result = session.run(cypher, params or {})
+            return [dict(record) for record in result]
 
     def should_use_graph(self, query: str) -> bool:
         """Check if query needs graph data"""
@@ -251,13 +279,16 @@ Cypher Query:"""
                     RETURN a.name as author, p.title as title, p.doi as doi
                     LIMIT 10
                     """
-                    results = self.graph.query(cypher)
+                    results = self._run_cypher(cypher)
 
                     if results:
                         result_text = f"Found {len(results)} paper(s) by authors matching '{author_name}':\n"
+                        dois = []
                         for r in results:
                             result_text += f"\n• '{r['title']}' by {r['author']}"
-                        return {"success": True, "cypher": cypher, "result": result_text}
+                            if r.get('doi'):
+                                dois.append(r['doi'])
+                        return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
                     else:
                         # Try last name only
                         last_name = author_name.split()[-1]
@@ -267,13 +298,16 @@ Cypher Query:"""
                         RETURN a.name as author, p.title as title, p.doi as doi
                         LIMIT 10
                         """
-                        results = self.graph.query(cypher)
+                        results = self._run_cypher(cypher)
 
                         if results:
                             result_text = f"Found {len(results)} paper(s) by authors with last name '{last_name}':\n"
+                            dois = []
                             for r in results:
                                 result_text += f"\n• '{r['title']}' by {r['author']}"
-                            return {"success": True, "cypher": cypher, "result": result_text}
+                                if r.get('doi'):
+                                    dois.append(r['doi'])
+                            return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
 
             # Pattern 2: "who collaborated with [author]"
             if "collaborated" in query_lower or "co-author" in query_lower:
@@ -284,19 +318,22 @@ Cypher Query:"""
                     MATCH (a1:Author)-[:AUTHORED]->(p:Paper)<-[:AUTHORED]-(a2:Author)
                     WHERE a1.name CONTAINS '{author_name}'
                     AND a1 <> a2
-                    RETURN DISTINCT a2.name as collaborator, p.title as paper
+                    RETURN DISTINCT a2.name as collaborator, p.title as paper, p.doi as doi
                     LIMIT 10
                     """
-                    results = self.graph.query(cypher)
+                    results = self._run_cypher(cypher)
 
                     if results:
                         result_text = f"Authors who collaborated with {author_name}:\n"
                         collaborators = set()
+                        dois = []
                         for r in results:
                             collaborators.add(r['collaborator'])
+                            if r.get('doi'):
+                                dois.append(r['doi'])
                         for collab in collaborators:
                             result_text += f"\n• {collab}"
-                        return {"success": True, "cypher": cypher, "result": result_text}
+                        return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
 
             # Pattern 3: "papers by same author" or "authors with multiple papers"
             if "same author" in query_lower or "multiple papers" in query_lower:
@@ -307,7 +344,7 @@ Cypher Query:"""
                 RETURN a.name as author, paper_count, papers
                 ORDER BY paper_count DESC
                 """
-                results = self.graph.query(cypher)
+                results = self._run_cypher(cypher)
 
                 if results:
                     result_text = "Authors with multiple papers:\n"
@@ -324,7 +361,7 @@ Cypher Query:"""
                 RETURN a.name as author
                 ORDER BY a.name
                 """
-                results = self.graph.query(cypher)
+                results = self._run_cypher(cypher)
 
                 if results:
                     result_text = f"All authors in database ({len(results)} total):\n"
@@ -351,14 +388,17 @@ Cypher Query:"""
                     RETURN DISTINCT p.title as title, p.doi as doi, collect(k.name) as keywords
                     LIMIT 10
                     """
-                    results = self.graph.query(cypher, {"topic": topic})
+                    results = self._run_cypher(cypher, {"topic": topic})
 
                     if results:
                         result_text = f"Found {len(results)} paper(s) related to '{topic}':\n"
+                        dois = []
                         for r in results:
                             keywords_str = ", ".join(r['keywords'][:3]) if r['keywords'] else ""
                             result_text += f"\n• '{r['title']}' (keywords: {keywords_str})"
-                        return {"success": True, "cypher": cypher, "result": result_text}
+                            if r.get('doi'):
+                                dois.append(r['doi'])
+                        return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
 
             # Pattern 6: List all keywords/topics
             if any(phrase in query_lower for phrase in ["all keywords", "list keywords", "all topics", "list topics", "what topics"]):
@@ -369,7 +409,7 @@ Cypher Query:"""
                 ORDER BY paper_count DESC
                 LIMIT 30
                 """
-                results = self.graph.query(cypher)
+                results = self._run_cypher(cypher)
 
                 if results:
                     result_text = f"Top keywords/topics ({len(results)} shown):\n"
@@ -378,45 +418,123 @@ Cypher Query:"""
                         result_text += f"\n• {r['keyword']}{type_label} ({r['paper_count']} papers)"
                     return {"success": True, "cypher": cypher, "result": result_text}
 
-            # Fallback: Use LLM to generate Cypher
-            response = self.graph_chain.invoke({"query": query})
+            # Fallback: Use LLM to generate Cypher (if available) or suggest alternatives
+            if self.graph_chain:
+                response = self.graph_chain.invoke({"query": query})
 
-            cypher = "N/A"
-            if "intermediate_steps" in response and response["intermediate_steps"]:
-                cypher = response["intermediate_steps"][0].get("query", "N/A")
+                cypher = "N/A"
+                if "intermediate_steps" in response and response["intermediate_steps"]:
+                    cypher = response["intermediate_steps"][0].get("query", "N/A")
 
-            result_text = response.get("result", "No results")
+                result_text = response.get("result", "No results")
 
-            # If LLM result is empty, provide helpful message
-            if not result_text or "don't know" in result_text.lower():
-                result_text = "No results found. Try queries like:\n• 'Which papers were written by Klaus?'\n• 'Who collaborated with Maklan?'\n• 'Show me authors with multiple papers'"
+                # If LLM result is empty, provide helpful message
+                if not result_text or "don't know" in result_text.lower():
+                    result_text = "No results found. Try queries like:\n• 'Which papers were written by Klaus?'\n• 'Who collaborated with Maklan?'\n• 'Show me authors with multiple papers'"
 
-            return {
-                "success": True,
-                "cypher": cypher,
-                "result": result_text
-            }
+                return {
+                    "success": True,
+                    "cypher": cypher,
+                    "result": result_text
+                }
+            else:
+                # No LangChain QA chain available, provide helpful message
+                return {
+                    "success": False,
+                    "cypher": None,
+                    "result": "No matching pattern found. Try queries like:\n• 'Papers written by [Author Name]'\n• 'Who collaborated with [Author Name]'\n• 'Papers about [topic]'\n• 'List all authors'\n• 'What topics are covered?'"
+                }
 
         except Exception as e:
             return {"success": False, "error": str(e), "result": f"Error: {e}"}
 
     def hybrid_answer(self, query: str):
         """Main hybrid search method"""
+        import time as time_module
+
         print(f"\n{'=' * 60}")
         print(f"🔍 Query: {query}")
         print(f"{'=' * 60}")
 
+        # Transparency tracking
+        transparency = {
+            "steps": [],
+            "timing": {},
+            "methods_used": []
+        }
+        total_start = time_module.time()
+
+        # Check if graph search is needed FIRST (for author/keyword queries)
+        use_graph = self.should_use_graph(query)
+        print(f"\n🔍 Graph search needed: {use_graph}")
+
         # Semantic search
         print("\n📚 Running semantic search...")
+        step_start = time_module.time()
         vector_results, similarities, best_score = self.semantic_search(query)
+        transparency["timing"]["semantic_search"] = round(time_module.time() - step_start, 2)
+        transparency["methods_used"].append("Semantic Search (ChromaDB + Embeddings)")
+        transparency["steps"].append({
+            "name": "Semantic Search",
+            "description": f"Searched {self.collection.count()} documents using sentence embeddings",
+            "result": f"Found {len(similarities) if similarities else 0} relevant papers (best match: {best_score:.1%})"
+        })
 
+        # If no semantic results BUT graph is needed, try graph-only answer
         if vector_results is None:
+            if use_graph:
+                print("\n🔗 No semantic results, trying graph-only search...")
+                step_start = time_module.time()
+                graph_response = self.graph_search(query)
+                transparency["timing"]["graph_search"] = round(time_module.time() - step_start, 2)
+
+                if graph_response["success"]:
+                    transparency["methods_used"].append("Knowledge Graph (Neo4j)")
+                    transparency["steps"].append({
+                        "name": "Graph Search",
+                        "description": "Queried Neo4j knowledge graph for structured relationships",
+                        "result": "Found results via graph query",
+                        "cypher": graph_response.get("cypher")
+                    })
+
+                    # Fetch full metadata for DOIs found in graph search
+                    sources = []
+                    similarities = []
+                    graph_dois = graph_response.get("dois", [])
+                    if graph_dois:
+                        try:
+                            # Get metadata from vector store for these DOIs
+                            graph_results = self.collection.get(
+                                ids=graph_dois,
+                                include=["metadatas"]
+                            )
+                            if graph_results and graph_results.get("metadatas"):
+                                sources = graph_results["metadatas"]
+                                similarities = [1.0] * len(sources)  # Graph matches are exact
+                        except Exception as e:
+                            print(f"   Could not fetch metadata for graph DOIs: {e}")
+
+                    transparency["timing"]["total"] = round(time_module.time() - total_start, 2)
+
+                    return {
+                        "answer": graph_response["result"],
+                        "sources": sources,
+                        "similarities": similarities,
+                        "best_score": 1.0 if sources else 0,
+                        "graph_used": True,
+                        "cypher_query": graph_response.get("cypher"),
+                        "transparency": transparency
+                    }
+
+            # No results from either search
+            transparency["timing"]["total"] = round(time_module.time() - total_start, 2)
             return {
                 "answer": "❌ No relevant papers found.",
                 "sources": [],
                 "similarities": [],
                 "best_score": 0,
-                "graph_used": False
+                "graph_used": False,
+                "transparency": transparency
             }
 
         print(f"✅ Found {len(vector_results['documents'][0])} papers (score: {best_score:.3f})")
@@ -429,31 +547,47 @@ Cypher Query:"""
             for i, doc in enumerate(docs)
         ])
 
-        # Check if graph needed
-        use_graph = self.should_use_graph(query)
-        print(f"\n🔍 Graph search needed: {use_graph}")  # DEBUG
-
         graph_context = ""
         cypher_query = None
 
         if use_graph:
             print("\n🔗 Running graph query...")
+            step_start = time_module.time()
             graph_response = self.graph_search(query)
+            transparency["timing"]["graph_search"] = round(time_module.time() - step_start, 2)
 
             print(f"   Graph response success: {graph_response.get('success')}")  # DEBUG
 
             if graph_response["success"]:
                 graph_context = graph_response["result"]
                 cypher_query = graph_response["cypher"]
+                transparency["methods_used"].append("Knowledge Graph (Neo4j)")
+                transparency["steps"].append({
+                    "name": "Graph Search",
+                    "description": "Queried Neo4j knowledge graph for structured relationships",
+                    "result": f"Found graph data using Cypher query",
+                    "cypher": cypher_query
+                })
                 print(f"✅ Graph query successful")
                 print(f"   Result preview: {graph_context[:100]}...")  # DEBUG
             else:
+                transparency["steps"].append({
+                    "name": "Graph Search",
+                    "description": "Attempted graph query but no results found",
+                    "result": graph_response.get('error', 'No matching pattern')
+                })
                 print(f"⚠️ Graph query failed: {graph_response.get('error')}")
         else:
+            transparency["steps"].append({
+                "name": "Graph Search",
+                "description": "Skipped - query doesn't require graph patterns",
+                "result": "Not needed for this query type"
+            })
             print("\n📄 Semantic only (no graph needed)")
 
         # Generate answer
         print("\n🤖 Generating answer (this may take 10-30 seconds)...")
+        step_start = time_module.time()
 
         if use_graph and graph_context and "No results found" not in graph_context:
             prompt = f"""Answer the question using the numbered sources below. Use inline citations like [1], [2] to reference specific papers.
@@ -491,10 +625,26 @@ ANSWER:"""
 
         try:
             answer = self.llm.invoke(prompt)
+            transparency["timing"]["llm_generation"] = round(time_module.time() - step_start, 2)
+            transparency["methods_used"].append(f"LLM Answer Generation (Ollama)")
+            transparency["steps"].append({
+                "name": "LLM Generation",
+                "description": f"Generated answer using local LLM model",
+                "result": f"Answer generated in {transparency['timing']['llm_generation']}s"
+            })
             print("✅ Answer generated")
         except Exception as e:
             print(f"⚠️ LLM timeout or error: {e}")
             answer = "⚠️ Answer generation timed out. Please try a simpler question or use a faster model."
+            transparency["steps"].append({
+                "name": "LLM Generation",
+                "description": "LLM answer generation failed",
+                "result": str(e)
+            })
+
+        # Total timing
+        transparency["timing"]["total"] = round(time_module.time() - total_start, 2)
+        transparency["prompt"] = prompt  # Include the actual prompt for full transparency
 
         return {
             "answer": answer,
@@ -502,5 +652,6 @@ ANSWER:"""
             "similarities": similarities,
             "best_score": best_score,
             "graph_used": use_graph and graph_context and "No results found" not in graph_context,
-            "cypher_query": cypher_query
+            "cypher_query": cypher_query,
+            "transparency": transparency
         }
