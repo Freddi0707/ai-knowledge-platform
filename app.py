@@ -56,6 +56,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
 # Global search engine (initialized after upload)
 search_engine = None
+current_db_path = None  # Track current database path
 
 
 def auto_import_to_neo4j(df):
@@ -243,8 +244,25 @@ def upload_file():
 
         # Step 2: Create vector embeddings
         print("\n🧮 Step 2: Creating vector embeddings...")
+        global current_db_path
+        # Release old ChromaDB connection before creating new store
+        if search_engine is not None:
+            search_engine = None
+            import gc
+            gc.collect()
+        # Use unique database path to avoid locking issues
+        import time as time_module
+        new_db_path = f"{DB_PATH}_{int(time_module.time())}"
+        # Clean up old database if exists
+        if current_db_path and os.path.exists(current_db_path):
+            try:
+                import shutil
+                shutil.rmtree(current_db_path)
+            except:
+                pass  # Ignore cleanup errors
+        current_db_path = new_db_path
         contents, metadatas, ids = create_documents_and_metadata(df)
-        create_vector_store(contents, metadatas, ids, DB_PATH, COLLECTION_NAME)
+        create_vector_store(contents, metadatas, ids, current_db_path, COLLECTION_NAME)
 
         # Step 3: Auto-import to Neo4j
         print("\n🔗 Step 3: Importing to Neo4j...")
@@ -253,7 +271,7 @@ def upload_file():
         # Step 4: Initialize search engine
         print("\n🚀 Step 4: Initializing search engine...")
         search_engine = HybridSearchEngine(
-            db_path=DB_PATH,
+            db_path=current_db_path,
             collection_name=COLLECTION_NAME,
             neo4j_url=NEO4J_URL,
             neo4j_user=NEO4J_USER,

@@ -183,6 +183,52 @@ def load_and_parse_standard_data(file_path: str) -> pd.DataFrame:
     print(f"✔ Rows before filter: {before}")
     print(f"✔ Rows after filter:  {after}")
 
+    # Apply journal rankings lookup
+    df = apply_journal_rankings(df)
+
+    return df
+
+
+def apply_journal_rankings(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Look up VHB and ABDC rankings for each paper based on ISSN/eISSN/journal name.
+    Only updates rankings that are currently 'N/A'.
+    """
+    from backend.ranking_service import get_ranking_service
+
+    try:
+        ranking_service = get_ranking_service()
+    except Exception as e:
+        print(f"⚠️ Could not load ranking service: {e}")
+        return df
+
+    print("\n📊 Looking up journal rankings...")
+    vhb_found = 0
+    abdc_found = 0
+
+    for idx, row in df.iterrows():
+        journal = safe_str(row.get("journal_name", ""))
+        issn = safe_str(row.get("issn", ""))
+        eissn = safe_str(row.get("eissn", ""))
+
+        # Only look up if current value is N/A or empty
+        current_vhb = safe_str(row.get("vhbRanking", "")).strip()
+        if not current_vhb or current_vhb == "N/A":
+            vhb = ranking_service.get_vhb_ranking(journal, issn, eissn)
+            if vhb != "N/A":
+                df.at[idx, "vhbRanking"] = vhb
+                vhb_found += 1
+
+        current_abdc = safe_str(row.get("abdcRanking", "")).strip()
+        if not current_abdc or current_abdc == "N/A":
+            abdc = ranking_service.get_abdc_ranking(journal, issn, eissn)
+            if abdc != "N/A":
+                df.at[idx, "abdcRanking"] = abdc
+                abdc_found += 1
+
+    print(f"   Found VHB rankings: {vhb_found}/{len(df)}")
+    print(f"   Found ABDC rankings: {abdc_found}/{len(df)}")
+
     return df
 
 
