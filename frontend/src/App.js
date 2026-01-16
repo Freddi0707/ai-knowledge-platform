@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp, Home, Eye, Clock, Code } from 'lucide-react';
+import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp, Home, Eye, Clock, Code, Info, X } from 'lucide-react';
 import TransparencyPanel from './components/TransparencyPanel';
 import ProportionalityPanel from './components/ProportionalityPanel';
 import SourceCard from './components/SourceCard';
@@ -329,8 +329,7 @@ function QueryTransparencyPanel({ transparency, cypherQuery }) {
 
 export default function HybridRAGInterface() {
   // Upload State
-  const [file, setFile] = useState(null);
-  const [uploadStatus, setUploadStatus] = useState('idle'); // idle, uploading, ready
+  const [uploadStatus, setUploadStatus] = useState('idle'); // idle, uploading, ready, error
   const [uploadProgress, setUploadProgress] = useState('');
 
   // Data State
@@ -343,6 +342,9 @@ export default function HybridRAGInterface() {
   const [results, setResults] = useState(null);
   const [showResults, setShowResults] = useState(false);
   const [searchTime, setSearchTime] = useState(0);
+
+  // Error State
+  const [uploadError, setUploadError] = useState(null);
 
   // Timer for search progress
   useEffect(() => {
@@ -357,10 +359,13 @@ export default function HybridRAGInterface() {
   }, [searching]);
 
   // UI State
-  const [uploadExpanded, setUploadExpanded] = useState(true);
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   // Welcome Screen State (always show on launch)
   const [showWelcome, setShowWelcome] = useState(true);
+
+  // Info Modal State for Ask Questions
+  const [showAskInfo, setShowAskInfo] = useState(false);
 
   const handleDismissWelcome = () => {
     setShowWelcome(false);
@@ -372,21 +377,20 @@ export default function HybridRAGInterface() {
     setPapersCount(DEMO_PAPERS.length);
     setUploadStatus('ready');
     setUploadProgress(`Demo: ${DEMO_PAPERS.length} papers loaded`);
-    setUploadExpanded(false);
   };
 
   // ========== BACK TO START ==========
   const resetToWelcome = () => {
-    setFile(null);
     setUploadStatus('idle');
     setUploadProgress('');
+    setUploadError(null);
     setPapers([]);
     setPapersCount(0);
     setQuery('');
     setSearching(false);
     setResults(null);
     setShowResults(false);
-    setUploadExpanded(true);
+    setFileInputKey(k => k + 1);
   };
 
   // ========== UPLOAD HANDLER ==========
@@ -394,9 +398,14 @@ export default function HybridRAGInterface() {
     const uploadedFile = e.target.files[0];
     if (!uploadedFile) return;
 
-    setFile(uploadedFile);
+    // Clear previous state
+    setUploadError(null);
+    setResults(null);
+    setShowResults(false);
+    setQuery('');
+
     setUploadStatus('uploading');
-    setUploadProgress('Uploading file...');
+    setUploadProgress('Uploading and processing file...');
 
     try {
       const formData = new FormData();
@@ -407,25 +416,34 @@ export default function HybridRAGInterface() {
         body: formData
       });
 
+      const uploadResult = await uploadResponse.json();
+
       if (!uploadResponse.ok) {
-        throw new Error('Upload failed');
+        // Show error from backend
+        throw new Error(uploadResult.error || 'Upload failed');
       }
 
-      const uploadResult = await uploadResponse.json();
-      // Use real papers from backend, fallback to demo if not available
-      setPapers(uploadResult.papers || DEMO_PAPERS);
-      setPapersCount(uploadResult.papers_count || 0);
+      if (!uploadResult.papers || uploadResult.papers.length === 0) {
+        throw new Error('No valid papers found in file. Please check the file format.');
+      }
+
+      setPapers(uploadResult.papers);
+      setPapersCount(uploadResult.papers_count || uploadResult.papers.length);
       setUploadStatus('ready');
       setUploadProgress(`${uploadResult.papers_count} papers processed`);
-      setUploadExpanded(false);
+      setUploadError(null);
     } catch (err) {
-      // Fallback to demo on error
-      setPapers(DEMO_PAPERS);
-      setPapersCount(DEMO_PAPERS.length);
-      setUploadStatus('ready');
-      setUploadProgress(`Demo mode (backend unavailable)`);
-      setUploadExpanded(false);
+      // Show error message instead of falling back to demo
+      console.error('Upload error:', err);
+      setUploadStatus('error');
+      setUploadError(err.message || 'Failed to process file. Please try again.');
+      setUploadProgress('');
+      setPapers([]);
+      setPapersCount(0);
     }
+
+    // Reset file input to allow re-uploading the same file
+    setFileInputKey(k => k + 1);
   };
 
   // ========== SEARCH HANDLER ==========
@@ -503,8 +521,31 @@ export default function HybridRAGInterface() {
         {/* Left: Upload + Graph */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Upload Section - Collapsible */}
-          {uploadStatus === 'idle' ? (
+          {uploadStatus === 'idle' || uploadStatus === 'error' ? (
             <div className="p-6 bg-white">
+              {/* Error Message */}
+              {uploadError && (
+                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0">
+                      <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-sm font-medium text-red-800">Upload Error</h3>
+                      <p className="mt-1 text-sm text-red-600">{uploadError}</p>
+                    </div>
+                    <button
+                      onClick={() => setUploadError(null)}
+                      className="ml-auto text-red-400 hover:text-red-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:border-indigo-300 hover:bg-indigo-50/30 transition-all">
                 <input
                   type="file"
@@ -512,6 +553,7 @@ export default function HybridRAGInterface() {
                   onChange={handleFileUpload}
                   className="hidden"
                   id="file-upload"
+                  key={`file-upload-${fileInputKey}`}
                 />
                 <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
                   <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
@@ -522,44 +564,38 @@ export default function HybridRAGInterface() {
                 </label>
               </div>
             </div>
-          ) : (
-            <div
-              className="bg-white cursor-pointer"
-              onClick={() => setUploadExpanded(!uploadExpanded)}
-            >
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="w-6 h-6 bg-emerald-100 rounded-full flex items-center justify-center mr-2">
-                    <CheckCircle className="w-4 h-4 text-emerald-600" />
-                  </div>
-                  <span className="text-sm text-gray-600">{uploadProgress}</span>
-                </div>
-                {uploadExpanded ? (
-                  <ChevronUp className="w-4 h-4 text-slate-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
-                )}
+          ) : uploadStatus === 'uploading' ? (
+            <div className="p-6 bg-white">
+              <div className="flex items-center justify-center py-8">
+                <Loader className="w-8 h-8 animate-spin text-indigo-600 mr-3" />
+                <span className="text-gray-600">{uploadProgress}</span>
               </div>
-              {uploadExpanded && (
-                <div className="px-4 pb-3 pt-2 border-t border-slate-100">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="file"
-                      accept=".xlsx,.xls,.csv"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                      id="file-upload-2"
-                    />
-                    <label
-                      htmlFor="file-upload-2"
-                      className="text-sm text-indigo-600 hover:text-indigo-700 cursor-pointer"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      Upload different file
-                    </label>
-                  </div>
+            </div>
+          ) : (
+            <div className="bg-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="w-6 h-6 bg-emerald-100 rounded-full flex items-center justify-center mr-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-600" />
                 </div>
-              )}
+                <span className="text-sm text-gray-600">{uploadProgress}</span>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="file-upload-new"
+                  key={`file-upload-new-${fileInputKey}`}
+                />
+                <label
+                  htmlFor="file-upload-new"
+                  className="text-sm text-indigo-600 hover:text-indigo-700 cursor-pointer flex items-center"
+                >
+                  <Upload className="w-4 h-4 mr-1" />
+                  Upload new file
+                </label>
+              </div>
             </div>
           )}
 
@@ -584,12 +620,64 @@ export default function HybridRAGInterface() {
         <div className="w-96 bg-white border-l border-slate-200 flex flex-col flex-shrink-0">
           {/* Search Header */}
           <div className="p-4 border-b border-slate-100">
-            <div className="flex items-center mb-3">
-              <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center mr-2">
-                <MessageSquare className="w-4 h-4 text-indigo-600" />
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center">
+                <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center mr-2">
+                  <MessageSquare className="w-4 h-4 text-indigo-600" />
+                </div>
+                <h2 className="font-medium text-gray-800">Ask Questions</h2>
               </div>
-              <h2 className="font-medium text-gray-800">Ask Questions</h2>
+              <button
+                onClick={() => setShowAskInfo(true)}
+                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                title="How does this work?"
+              >
+                <Info className="w-4 h-4" />
+              </button>
             </div>
+
+            {/* Info Modal */}
+            {showAskInfo && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAskInfo(false)}>
+                <div className="bg-white rounded-2xl shadow-xl max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 px-5 py-4 flex items-center justify-between">
+                    <h3 className="text-white font-semibold flex items-center">
+                      <MessageSquare className="w-5 h-5 mr-2" />
+                      Ask Questions - How it works
+                    </h3>
+                    <button onClick={() => setShowAskInfo(false)} className="text-white/80 hover:text-white">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="p-5 space-y-4 text-sm">
+                    <div>
+                      <h4 className="font-semibold text-gray-800 mb-1">🔍 Hybrid Search</h4>
+                      <p className="text-gray-600">Combines <span className="font-medium text-indigo-600">Semantic Search</span> (AI embeddings) with <span className="font-medium text-purple-600">Knowledge Graph</span> (Neo4j) for accurate results.</p>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-800 mb-1">💬 Query Types</h4>
+                      <ul className="text-gray-600 space-y-1 ml-4">
+                        <li>• <b>Author queries:</b> "Papers by Kim", "Who collaborated with Davis?"</li>
+                        <li>• <b>Topic queries:</b> "Papers about AI", "What topics does Smith research?"</li>
+                        <li>• <b>Concept questions:</b> "What is machine learning?"</li>
+                        <li>• <b>List queries:</b> "List all authors", "What topics are covered?"</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-800 mb-1">🤖 LLM Intent Classification</h4>
+                      <p className="text-gray-600">An AI model analyzes your question to determine the best search strategy before querying the database.</p>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-800 mb-1">📊 Dynamic Results</h4>
+                      <p className="text-gray-600">Returns all papers above 35% relevance threshold (up to 10). More relevant queries = more sources.</p>
+                    </div>
+                    <div className="pt-2 border-t border-slate-100">
+                      <p className="text-xs text-slate-500">Tip: Click on citation numbers [1], [2] in answers to see source details.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Search Input */}
             <div className="flex space-x-2">
@@ -622,10 +710,10 @@ export default function HybridRAGInterface() {
                   {[
                     "Papers by Smith",
                     "Who collaborated with Davis?",
-                    "What topics are covered?",
-                    "Papers about digital transformation",
-                    "List all authors",
-                    "What is strategic management?"
+                    "What does Allen write about?",
+                    "Papers about AI",
+                    "Topics by Kim",
+                    "What is machine learning?"
                   ].map((q) => (
                     <button
                       key={q}
@@ -695,6 +783,21 @@ export default function HybridRAGInterface() {
                   </div>
                 </div>
 
+                {/* Sources - directly after answer */}
+                {results.sources?.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-gray-800 mb-2 flex items-center">
+                      <FileText className="w-4 h-4 mr-1.5 text-slate-500" />
+                      Sources ({results.sources.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {results.sources.map((source, idx) => (
+                        <SourceCard key={idx} source={source} index={idx + 1} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Query Transparency Panel */}
                 <QueryTransparencyPanel
                   transparency={results.transparency}
@@ -705,18 +808,6 @@ export default function HybridRAGInterface() {
                 <TransparencyPanel confidence={results.confidence} sources={results.sources} />
                 <ProportionalityPanel sources={results.sources} />
                 <ContextPanel sources={results.sources} totalPapers={papersCount} query={query} />
-
-                {/* Sources */}
-                <div>
-                  <h4 className="font-semibold text-gray-800 mb-3">
-                    Sources ({results.sources?.length})
-                  </h4>
-                  <div className="space-y-3">
-                    {results.sources?.map((source, idx) => (
-                      <SourceCard key={idx} source={source} index={idx + 1} />
-                    ))}
-                  </div>
-                </div>
               </div>
             )}
           </div>

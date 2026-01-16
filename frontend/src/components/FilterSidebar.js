@@ -18,7 +18,7 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
   const [selectedIndexKeywords, setSelectedIndexKeywords] = useState(filters?.indexKeywords || []);
   const [selectedRankings, setSelectedRankings] = useState(filters?.rankings || { vhb: [], abdc: [] });
 
-  // Collapsed States
+  // Collapsed States (section header collapse)
   const [collapsed, setCollapsed] = useState({
     authors: false,
     keywords: true,
@@ -169,6 +169,138 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
     selectedAuthorKeywords.length + selectedIndexKeywords.length +
     selectedRankings.vhb.length + selectedRankings.abdc.length;
 
+  // Helper function to group items alphabetically
+  const groupByFirstLetter = (items) => {
+    const groups = {};
+    items.forEach(item => {
+      const firstLetter = item.charAt(0).toUpperCase();
+      if (!groups[firstLetter]) {
+        groups[firstLetter] = [];
+      }
+      groups[firstLetter].push(item);
+    });
+    return groups;
+  };
+
+  // State for expanded letters per list
+  const [expandedLetters, setExpandedLetters] = useState({
+    authors: {},
+    authorKeywords: {},
+    indexKeywords: {}
+  });
+
+  const toggleLetter = (listKey, letter) => {
+    setExpandedLetters(prev => ({
+      ...prev,
+      [listKey]: {
+        ...prev[listKey],
+        [letter]: !prev[listKey][letter]
+      }
+    }));
+  };
+
+  // Alphabetical list component with clickable letter buttons
+  const AlphabetList = ({ items, selectedItems, onToggle, colorClass, listKey }) => {
+    const grouped = groupByFirstLetter(items);
+    const letters = Object.keys(grouped).sort();
+    const letterExpanded = expandedLetters[listKey] || {};
+
+    // Count selected per letter
+    const getSelectedCount = (letter) => {
+      return grouped[letter].filter(item => selectedItems.includes(item)).length;
+    };
+
+    return (
+      <div className="space-y-1">
+        {/* Alphabet buttons */}
+        <div className="flex flex-wrap gap-1 mb-2">
+          {letters.map(letter => {
+            const count = grouped[letter].length;
+            const selectedCount = getSelectedCount(letter);
+            const isExpanded = letterExpanded[letter];
+
+            return (
+              <button
+                key={letter}
+                onClick={() => toggleLetter(listKey, letter)}
+                className={`relative min-w-[28px] h-7 px-1.5 text-xs font-medium rounded transition-all ${
+                  isExpanded
+                    ? 'bg-indigo-500 text-white shadow-sm'
+                    : selectedCount > 0
+                    ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+                title={`${letter}: ${count} items`}
+              >
+                {letter}
+                {selectedCount > 0 && !isExpanded && (
+                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-indigo-500 text-white text-[9px] rounded-full flex items-center justify-center">
+                    {selectedCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Expanded letter sections */}
+        <div className="max-h-52 overflow-y-auto space-y-1">
+          {letters.filter(letter => letterExpanded[letter]).map(letter => (
+            <div key={letter} className="border border-slate-200 rounded-lg overflow-hidden">
+              <div className="bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-600 flex justify-between items-center">
+                <span>{letter} ({grouped[letter].length})</span>
+                <button
+                  onClick={() => toggleLetter(listKey, letter)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <ChevronUp className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="p-1 space-y-0.5 max-h-40 overflow-y-auto">
+                {grouped[letter].map(item => (
+                  <label key={item} className="flex items-center text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={selectedItems.includes(item)}
+                      onChange={() => onToggle(item)}
+                      className={`mr-2 rounded ${colorClass} border-slate-300`}
+                    />
+                    <span className="truncate text-slate-700" title={item}>
+                      {item.length > 28 ? item.substring(0, 28) + '...' : item}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Show selected items if any letter is not expanded */}
+        {selectedItems.length > 0 && letters.every(l => !letterExpanded[l]) && (
+          <div className="pt-1 border-t border-slate-100">
+            <p className="text-xs text-slate-500 mb-1">Selected ({selectedItems.length}):</p>
+            <div className="flex flex-wrap gap-1">
+              {selectedItems.slice(0, 5).map(item => (
+                <span
+                  key={item}
+                  onClick={() => onToggle(item)}
+                  className={`inline-flex items-center px-2 py-0.5 text-xs rounded-full cursor-pointer ${colorClass.replace('text-', 'bg-').replace('600', '100')} ${colorClass}`}
+                  title="Click to remove"
+                >
+                  {item.length > 15 ? item.substring(0, 15) + '...' : item}
+                  <span className="ml-1">&times;</span>
+                </span>
+              ))}
+              {selectedItems.length > 5 && (
+                <span className="text-xs text-slate-400">+{selectedItems.length - 5} more</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="h-full overflow-y-auto">
       {/* Header */}
@@ -228,24 +360,13 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
             {collapsed.authors ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
           </button>
           {!collapsed.authors && (
-            <div className="max-h-40 overflow-y-auto space-y-0.5">
-              {authors.slice(0, 20).map(author => (
-                <label key={author} className="flex items-center text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded-lg transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={selectedAuthors.includes(author)}
-                    onChange={() => toggleAuthor(author)}
-                    className="mr-2 rounded text-indigo-600 border-slate-300"
-                  />
-                  <span className="truncate text-slate-700">
-                    {author.length > 25 ? author.substring(0, 25) + '...' : author}
-                  </span>
-                </label>
-              ))}
-              {authors.length > 20 && (
-                <p className="text-xs text-slate-400 p-1">+{authors.length - 20} more</p>
-              )}
-            </div>
+            <AlphabetList
+              items={authors}
+              selectedItems={selectedAuthors}
+              onToggle={toggleAuthor}
+              colorClass="text-indigo-600"
+              listKey="authors"
+            />
           )}
         </div>
 
@@ -260,22 +381,13 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
               {collapsed.authorKeywords ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
             </button>
             {!collapsed.authorKeywords && (
-              <div className="max-h-40 overflow-y-auto space-y-0.5">
-                {authorKeywords.slice(0, 20).map(kw => (
-                  <label key={kw} className="flex items-center text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded-lg transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={selectedAuthorKeywords.includes(kw)}
-                      onChange={() => toggleAuthorKeyword(kw)}
-                      className="mr-2 rounded text-emerald-600 border-slate-300"
-                    />
-                    <span className="truncate text-slate-700">{kw}</span>
-                  </label>
-                ))}
-                {authorKeywords.length > 20 && (
-                  <p className="text-xs text-slate-400 p-1">+{authorKeywords.length - 20} more</p>
-                )}
-              </div>
+              <AlphabetList
+                items={authorKeywords}
+                selectedItems={selectedAuthorKeywords}
+                onToggle={toggleAuthorKeyword}
+                colorClass="text-emerald-600"
+                listKey="authorKeywords"
+              />
             )}
           </div>
         )}
@@ -287,26 +399,17 @@ export default function FilterSidebar({ papers = [], filters, onFilterChange }) 
               onClick={() => setCollapsed(c => ({ ...c, indexKeywords: !c.indexKeywords }))}
               className="w-full flex items-center justify-between text-sm font-medium text-slate-600 mb-2"
             >
-              <span>Keywords ({indexKeywords.length})</span>
+              <span>Index Keywords ({indexKeywords.length})</span>
               {collapsed.indexKeywords ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
             </button>
             {!collapsed.indexKeywords && (
-              <div className="max-h-40 overflow-y-auto space-y-0.5">
-                {indexKeywords.slice(0, 20).map(kw => (
-                  <label key={kw} className="flex items-center text-sm cursor-pointer hover:bg-slate-50 p-1.5 rounded-lg transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={selectedIndexKeywords.includes(kw)}
-                      onChange={() => toggleIndexKeyword(kw)}
-                      className="mr-2 rounded text-amber-600 border-slate-300"
-                    />
-                    <span className="truncate text-slate-700">{kw}</span>
-                  </label>
-                ))}
-                {indexKeywords.length > 20 && (
-                  <p className="text-xs text-slate-400 p-1">+{indexKeywords.length - 20} more</p>
-                )}
-              </div>
+              <AlphabetList
+                items={indexKeywords}
+                selectedItems={selectedIndexKeywords}
+                onToggle={toggleIndexKeyword}
+                colorClass="text-amber-600"
+                listKey="indexKeywords"
+              />
             )}
           </div>
         )}

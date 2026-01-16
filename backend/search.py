@@ -194,7 +194,8 @@ Cypher Query:"""
 
         # Check for author-related patterns
         author_patterns = ["written", "wrote", "author", "papers by", "paper by", "works by",
-                          "collaborated", "co-author", "coauthor"]
+                          "collaborated", "co-author", "coauthor", "topics by", "write about",
+                          "research by", "what does"]
         for pattern in author_patterns:
             if pattern in query_lower:
                 print(f"   [DEBUG] Found '{pattern}' in query")
@@ -208,23 +209,71 @@ Cypher Query:"""
         print(f"   [DEBUG] No graph patterns matched in: {query_lower}")
         return False
 
-    def semantic_search(self, query: str, n_results: int = 2, threshold: float = 0.30):
-        """Semantic search via embeddings (reduced to 2 results for speed)"""
+    def semantic_search(self, query: str, max_results: int = 10, threshold: float = 0.35):
+        """
+        Semantic search via embeddings.
+        Returns all papers with similarity >= threshold, up to max_results.
+        """
         q_emb = self.vector_model.encode(query, normalize_embeddings=True).tolist()
 
+        # Fetch more results initially, then filter by threshold
         results = self.collection.query(
             query_embeddings=[q_emb],
-            n_results=n_results,
+            n_results=max_results,
             include=["metadatas", "distances", "documents"]
         )
 
         distances = results["distances"][0]
         similarities = [1 - d for d in distances]
 
-        if not similarities or similarities[0] < threshold:
+        # Filter results by threshold
+        filtered_indices = [i for i, sim in enumerate(similarities) if sim >= threshold]
+
+        if not filtered_indices:
             return None, None, 0
 
-        return results, similarities, similarities[0]
+        # Build filtered results
+        filtered_results = {
+            "ids": [[results["ids"][0][i] for i in filtered_indices]],
+            "documents": [[results["documents"][0][i] for i in filtered_indices]],
+            "metadatas": [[results["metadatas"][0][i] for i in filtered_indices]],
+            "distances": [[results["distances"][0][i] for i in filtered_indices]]
+        }
+        filtered_similarities = [similarities[i] for i in filtered_indices]
+
+        return filtered_results, filtered_similarities, filtered_similarities[0]
+
+    def classify_intent(self, query: str) -> dict:
+        """Use LLM to classify the query intent"""
+        prompt = f"""Classify this research query into ONE category. Reply with ONLY the category name.
+
+Categories:
+- PAPERS_BY_AUTHOR: Find papers written by a specific author (e.g., "papers by Smith", "what did Allen write?")
+- TOPICS_BY_AUTHOR: Find research topics/keywords of an author (e.g., "what topics does Smith research?", "what does Allen write about?")
+- COLLABORATIONS: Find who collaborated with an author (e.g., "who worked with Kim?", "collaborators of Smith")
+- PAPERS_BY_TOPIC: Find papers about a topic (e.g., "papers about AI", "research on machine learning")
+- LIST_AUTHORS: List all authors (e.g., "show all authors", "list authors")
+- LIST_TOPICS: List all topics/keywords (e.g., "what topics are covered?", "list keywords")
+- CONCEPT_QUESTION: General question about a concept (e.g., "what is machine learning?", "explain AI")
+- OTHER: Doesn't fit any category
+
+Query: "{query}"
+
+Category:"""
+
+        try:
+            response = self.llm.invoke(prompt).strip().upper()
+            # Extract just the category name
+            for cat in ["PAPERS_BY_AUTHOR", "TOPICS_BY_AUTHOR", "COLLABORATIONS",
+                       "PAPERS_BY_TOPIC", "LIST_AUTHORS", "LIST_TOPICS", "CONCEPT_QUESTION"]:
+                if cat in response:
+                    print(f"   [Intent] LLM classified as: {cat}")
+                    return {"intent": cat, "confidence": "high"}
+            print(f"   [Intent] LLM response unclear: {response[:50]}, defaulting to OTHER")
+            return {"intent": "OTHER", "confidence": "low"}
+        except Exception as e:
+            print(f"   [Intent] Classification failed: {e}")
+            return {"intent": "OTHER", "confidence": "error"}
 
     def graph_search(self, query: str):
         """Query knowledge graph with direct queries for common patterns"""
@@ -234,53 +283,59 @@ Cypher Query:"""
         try:
             query_lower = query.lower()
 
+            # Use LLM to classify intent
+            print("   [Intent] Classifying query...")
+            intent_result = self.classify_intent(query)
+            intent = intent_result["intent"]
+
             # Extract author name more intelligently
             def extract_author_name(text):
                 """Extract author name from query - case insensitive"""
                 import re
 
-                # Pattern 1: "by [Name]" - case insensitive, capture word(s) after "by"
-                match = re.search(r'\b(?:by|from|of)\s+([a-zA-ZäöüßÄÖÜ]+(?:\s+[a-zA-ZäöüßÄÖÜ]+)*)', text, re.IGNORECASE)
+                # Common words that are NOT names
+                common_words = {'which', 'who', 'what', 'paper', 'papers', 'author', 'authors',
+                               'written', 'wrote', 'write', 'the', 'a', 'an', 'is', 'are', 'was', 'were',
+                               'find', 'show', 'list', 'all', 'about', 'on', 'in', 'by', 'from', 'with',
+                               'topics', 'topic', 'does', 'did', 'do', 'research', 'collaborate',
+                               'collaborated', 'work', 'worked', 'keywords', 'keyword'}
+
+                # Pattern 1: "by/from/of/with [Name]" - name after preposition
+                match = re.search(r'\b(?:by|from|of|with)\s+([A-Z][a-zA-ZäöüßÄÖÜ]*)', text)
                 if match:
                     name = match.group(1).strip("?,.")
-                    # Filter out common words that aren't names
-                    if name.lower() not in ['the', 'a', 'an', 'same', 'this', 'that']:
+                    if name.lower() not in common_words:
                         return name
 
-                # Pattern 2: Find any word that looks like a name (not a common word)
-                common_words = {'which', 'who', 'what', 'paper', 'papers', 'author', 'authors',
-                               'written', 'wrote', 'the', 'a', 'an', 'is', 'are', 'was', 'were',
-                               'find', 'show', 'list', 'all', 'about', 'on', 'in', 'by', 'from'}
+                # Pattern 2: "[Name] write/research/collaborate" - name before verb
+                match = re.search(r'does\s+([A-Z][a-zA-ZäöüßÄÖÜ]*)\s+(?:write|research|work|study)', text)
+                if match:
+                    name = match.group(1).strip("?,.")
+                    if name.lower() not in common_words:
+                        return name
+
+                # Pattern 3: Find capitalized word that's not a common word
                 words = text.split()
-                for i, word in enumerate(words):
+                for word in words:
                     clean_word = word.strip("?,.")
-                    if clean_word and clean_word.lower() not in common_words:
-                        # Check if it could be a name (not all lowercase common word)
-                        if clean_word[0].isupper() or (len(clean_word) > 2 and clean_word.lower() == clean_word):
-                            # Collect consecutive potential name parts
-                            name_parts = [clean_word]
-                            j = i + 1
-                            while j < len(words):
-                                next_word = words[j].strip("?,.")
-                                if next_word and next_word.lower() not in common_words:
-                                    name_parts.append(next_word)
-                                    j += 1
-                                else:
-                                    break
-                            return " ".join(name_parts)
+                    # Must start with uppercase and not be a common word
+                    if clean_word and len(clean_word) > 1 and clean_word[0].isupper():
+                        if clean_word.lower() not in common_words:
+                            return clean_word
 
                 return None
 
-            # Pattern 1: "papers by [author]" or "written by [author]"
-            if any(phrase in query_lower for phrase in
-                   ["papers by", "paper by", "written by", "works by", "paper were written", "paper was written"]):
+            # Route based on LLM intent classification
+            # Pattern 1: Papers by author
+            if intent == "PAPERS_BY_AUTHOR":
                 author_name = extract_author_name(query)
 
                 if author_name:
-                    # Try exact match first, then partial match
+                    # Case-insensitive search using toLower()
+                    search_name = author_name.lower()
                     cypher = f"""
                     MATCH (a:Author)-[:AUTHORED]->(p:Paper)
-                    WHERE a.name CONTAINS '{author_name}'
+                    WHERE toLower(a.name) CONTAINS '{search_name}'
                     RETURN a.name as author, p.title as title, p.doi as doi
                     LIMIT 10
                     """
@@ -296,10 +351,10 @@ Cypher Query:"""
                         return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
                     else:
                         # Try last name only
-                        last_name = author_name.split()[-1]
+                        last_name = author_name.split()[-1].lower()
                         cypher = f"""
                         MATCH (a:Author)-[:AUTHORED]->(p:Paper)
-                        WHERE a.name CONTAINS '{last_name}'
+                        WHERE toLower(a.name) CONTAINS '{last_name}'
                         RETURN a.name as author, p.title as title, p.doi as doi
                         LIMIT 10
                         """
@@ -315,13 +370,14 @@ Cypher Query:"""
                             return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
 
             # Pattern 2: "who collaborated with [author]"
-            if "collaborated" in query_lower or "co-author" in query_lower:
+            if intent == "COLLABORATIONS":
                 author_name = extract_author_name(query)
 
                 if author_name:
+                    search_name = author_name.lower()
                     cypher = f"""
                     MATCH (a1:Author)-[:AUTHORED]->(p:Paper)<-[:AUTHORED]-(a2:Author)
-                    WHERE a1.name CONTAINS '{author_name}'
+                    WHERE toLower(a1.name) CONTAINS '{search_name}'
                     AND a1 <> a2
                     RETURN DISTINCT a2.name as collaborator, p.title as paper, p.doi as doi
                     LIMIT 10
@@ -360,7 +416,7 @@ Cypher Query:"""
                     return {"success": True, "cypher": cypher, "result": result_text}
 
             # Pattern 4: List all authors
-            if "all authors" in query_lower or "list authors" in query_lower:
+            if intent == "LIST_AUTHORS":
                 cypher = """
                 MATCH (a:Author)
                 RETURN a.name as author
@@ -375,7 +431,7 @@ Cypher Query:"""
                     return {"success": True, "cypher": cypher, "result": result_text}
 
             # Pattern 5: Papers by keyword/topic
-            if any(phrase in query_lower for phrase in ["papers about", "papers on", "research on", "topic", "keyword"]):
+            if intent == "PAPERS_BY_TOPIC":
                 # Extract the topic/keyword from query
                 import re
                 topic_match = re.search(r'(?:about|on|topic|keyword)[:\s]+["\']?([^"\'?,]+)["\']?', query_lower)
@@ -405,8 +461,52 @@ Cypher Query:"""
                                 dois.append(r['doi'])
                         return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
 
-            # Pattern 6: List all keywords/topics
-            if any(phrase in query_lower for phrase in ["all keywords", "list keywords", "all topics", "list topics", "what topics"]):
+            # Pattern 6: Topics/keywords by specific author
+            if intent == "TOPICS_BY_AUTHOR":
+                author_name = extract_author_name(query)
+                if author_name:
+                    search_name = author_name.lower()
+                    cypher = f"""
+                    MATCH (a:Author)-[:AUTHORED]->(p:Paper)-[:HAS_KEYWORD]->(k:Keyword)
+                    WHERE toLower(a.name) CONTAINS '{search_name}'
+                    WITH a.name as author, k.name as keyword, k.type as type, count(p) as paper_count, collect(DISTINCT p.title) as papers
+                    RETURN author, keyword, type, paper_count, papers
+                    ORDER BY paper_count DESC
+                    LIMIT 20
+                    """
+                    results = self._run_cypher(cypher)
+
+                    if results:
+                        # Group by author
+                        authors = {}
+                        dois = []
+                        for r in results:
+                            auth = r['author']
+                            if auth not in authors:
+                                authors[auth] = []
+                            type_label = f" [{r['type']}]" if r.get('type') else ""
+                            authors[auth].append(f"{r['keyword']}{type_label}")
+
+                        result_text = f"Topics/keywords in papers by authors matching '{author_name}':\n"
+                        for auth, keywords in authors.items():
+                            result_text += f"\n**{auth}:**\n"
+                            for kw in keywords[:10]:  # Limit keywords per author
+                                result_text += f"  • {kw}\n"
+
+                        # Also get DOIs for sources
+                        doi_cypher = f"""
+                        MATCH (a:Author)-[:AUTHORED]->(p:Paper)
+                        WHERE toLower(a.name) CONTAINS '{search_name}'
+                        RETURN p.doi as doi
+                        LIMIT 10
+                        """
+                        doi_results = self._run_cypher(doi_cypher)
+                        dois = [r['doi'] for r in doi_results if r.get('doi')]
+
+                        return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
+
+            # Pattern 7: List all keywords/topics
+            if intent == "LIST_TOPICS":
                 cypher = """
                 MATCH (k:Keyword)<-[:HAS_KEYWORD]-(p:Paper)
                 WITH k.name as keyword, k.type as type, count(p) as paper_count
@@ -554,6 +654,8 @@ Cypher Query:"""
 
         graph_context = ""
         cypher_query = None
+        graph_sources = []  # Sources from graph search
+        graph_similarities = []
 
         if use_graph:
             print("\n🔗 Running graph query...")
@@ -575,6 +677,59 @@ Cypher Query:"""
                 })
                 print(f"✅ Graph query successful")
                 print(f"   Result preview: {graph_context[:100]}...")  # DEBUG
+
+                # Fetch metadata for papers found by graph search
+                graph_dois = graph_response.get("dois", [])
+                if graph_dois:
+                    try:
+                        # Check if query has both author AND topic (e.g., "papers about AI by Smith")
+                        import re
+                        topic_match = re.search(r'(?:about|on|regarding)\s+([^by]+?)(?:\s+by|\s*$)', query, re.IGNORECASE)
+                        has_topic = topic_match is not None
+
+                        if has_topic and len(graph_dois) > 1:
+                            # Hybrid: Graph found author's papers, now rank by topic relevance
+                            topic = topic_match.group(1).strip()
+                            print(f"   Hybrid query detected: ranking by topic '{topic}'")
+
+                            # Get embeddings for the topic and graph papers
+                            topic_emb = self.vector_model.encode(topic, normalize_embeddings=True)
+
+                            graph_results = self.collection.get(
+                                ids=graph_dois,
+                                include=["metadatas", "embeddings"]
+                            )
+
+                            if graph_results and graph_results.get("metadatas"):
+                                # Calculate similarity to topic for each paper
+                                import numpy as np
+                                embeddings = graph_results.get("embeddings", [])
+                                scored_papers = []
+
+                                for i, meta in enumerate(graph_results["metadatas"]):
+                                    if embeddings and i < len(embeddings):
+                                        sim = float(np.dot(topic_emb, embeddings[i]))
+                                    else:
+                                        sim = 0.5  # Default if no embedding
+                                    scored_papers.append((meta, sim))
+
+                                # Sort by topic relevance
+                                scored_papers.sort(key=lambda x: x[1], reverse=True)
+                                graph_sources = [p[0] for p in scored_papers]
+                                graph_similarities = [p[1] for p in scored_papers]
+                                print(f"   Ranked {len(graph_sources)} papers by topic relevance")
+                        else:
+                            # Pure author query - just get metadata
+                            graph_results = self.collection.get(
+                                ids=graph_dois,
+                                include=["metadatas"]
+                            )
+                            if graph_results and graph_results.get("metadatas"):
+                                graph_sources = graph_results["metadatas"]
+                                graph_similarities = [1.0] * len(graph_sources)
+                                print(f"   Retrieved {len(graph_sources)} source(s) from graph DOIs")
+                    except Exception as e:
+                        print(f"   Could not fetch graph DOIs: {e}")
             else:
                 transparency["steps"].append({
                     "name": "Graph Search",
@@ -594,13 +749,24 @@ Cypher Query:"""
         print("\n🤖 Generating answer (this may take 10-30 seconds)...")
         step_start = time_module.time()
 
+        # Build context from the right sources
+        if graph_sources:
+            # Use graph sources for the prompt
+            source_context = "\n\n".join([
+                f"[{i+1}] {meta.get('title', 'Unknown')} ({meta.get('authors', 'Unknown').split(';')[0].split(',')[0]}, {meta.get('year', meta.get('date', '')[:4])}): {meta.get('abstract', meta.get('abstract_snippet', 'No abstract'))}"
+                for i, meta in enumerate(graph_sources)
+            ])
+            print(f"   Using {len(graph_sources)} graph source(s) for LLM prompt")
+        else:
+            source_context = semantic_context
+
         if use_graph and graph_context and "No results found" not in graph_context:
             prompt = f"""Answer the question using the numbered sources below. Use inline citations like [1], [2] to reference specific papers.
 
 SOURCES:
-{semantic_context}
+{source_context}
 
-GRAPH CONTEXT:
+GRAPH CONTEXT (structured data from knowledge graph):
 {graph_context}
 
 QUESTION: {query}
@@ -610,6 +776,7 @@ INSTRUCTIONS:
 - Use [1], [2], [3] etc. to cite sources inline
 - Only cite sources that directly support your statements
 - Be concise and factual
+- The GRAPH CONTEXT shows what the knowledge graph found - use this to inform your answer
 
 ANSWER:"""
         else:
@@ -651,12 +818,26 @@ ANSWER:"""
         transparency["timing"]["total"] = round(time_module.time() - total_start, 2)
         transparency["prompt"] = prompt  # Include the actual prompt for full transparency
 
+        # Determine which sources to return
+        # For author/graph queries, prioritize graph sources; otherwise combine
+        graph_used = use_graph and graph_context and "No results found" not in graph_context
+        if graph_sources:
+            # Graph found specific papers - use those as primary sources
+            final_sources = graph_sources
+            final_similarities = graph_similarities
+            final_score = 1.0  # Graph matches are exact
+        else:
+            # Use semantic sources
+            final_sources = vector_results["metadatas"][0]
+            final_similarities = similarities
+            final_score = best_score
+
         return {
             "answer": answer,
-            "sources": vector_results["metadatas"][0],
-            "similarities": similarities,
-            "best_score": best_score,
-            "graph_used": use_graph and graph_context and "No results found" not in graph_context,
+            "sources": final_sources,
+            "similarities": final_similarities,
+            "best_score": final_score,
+            "graph_used": graph_used,
             "cypher_query": cypher_query,
             "transparency": transparency
         }

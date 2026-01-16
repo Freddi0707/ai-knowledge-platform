@@ -35,6 +35,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
   const [semanticSimilarities, setSemanticSimilarities] = useState([]);
   const [showRelational, setShowRelational] = useState(true); // Show relational (Neo4j) edges
   const [showSemantic, setShowSemantic] = useState(true); // Show semantic (Vector) edges
+  const [showDragHint, setShowDragHint] = useState(true); // Show hint to drag nodes
 
   // Get DOIs of highlighted sources for filtering
   const highlightedDOIs = useMemo(() => {
@@ -508,7 +509,29 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
 
           {/* Graph View */}
           {viewMode === 'graph' && (
-            <div className="flex-1 bg-slate-50">
+            <div className="flex-1 bg-slate-50 relative">
+              {/* Drag Hint Overlay */}
+              {showDragHint && graphData.nodes.length > 0 && (
+                <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                  <div
+                    className="bg-gray-900/80 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 pointer-events-auto cursor-pointer hover:bg-gray-900/90 transition-colors"
+                    onClick={() => setShowDragHint(false)}
+                  >
+                    <span className="text-2xl">👆</span>
+                    <div>
+                      <p className="font-medium">Drag nodes to explore</p>
+                      <p className="text-xs text-gray-300">Click anywhere to dismiss</p>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowDragHint(false); }}
+                      className="ml-2 text-gray-400 hover:text-white"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {graphData.nodes.length > 0 ? (
                 <ForceGraph2D
                   ref={graphRef}
@@ -585,6 +608,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                   onNodeClick={handleNodeClick}
                   onLinkClick={handleLinkClick}
                   onBackgroundClick={handleBackgroundClick}
+                  onNodeDragStart={() => setShowDragHint(false)}
                   onZoom={({ k }) => setZoomLevel(k)}
                   linkDirectionalParticles={0}
                   cooldownTicks={300}
@@ -663,13 +687,13 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                     <th className="text-left px-4 py-3 font-medium text-slate-600">Title</th>
                     <th className="text-left px-4 py-3 font-medium text-slate-600">Authors</th>
                     <th className="text-center px-4 py-3 font-medium text-slate-600 w-20">Year</th>
-                    <th className="text-center px-4 py-3 font-medium text-slate-600 w-24">Citations</th>
+                    <th className="text-center px-4 py-3 font-medium text-slate-600 w-24">Citations ↓</th>
                     <th className="text-center px-4 py-3 font-medium text-slate-600 w-20">VHB</th>
                     <th className="text-center px-4 py-3 font-medium text-slate-600 w-20">ABDC</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPapers.map((paper, idx) => (
+                  {[...filteredPapers].sort((a, b) => (parseInt(b.citations) || 0) - (parseInt(a.citations) || 0)).map((paper, idx) => (
                     <tr
                       key={idx}
                       onClick={() => setSelectedPaper(paper)}
