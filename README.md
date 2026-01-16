@@ -1,9 +1,47 @@
-# 🚀 Hybrid RAG System - Complete Setup Guide
+# Hybrid RAG System - Complete Setup Guide
 ## Research Paper Knowledge Base with Semantic Search + Knowledge Graph
 
 ---
 
-## 📋 Table of Contents
+## Quick Start (TL;DR)
+
+```bash
+# 1. Clone and setup
+git clone https://github.com/your-repo/ai-knowledge-platform.git
+cd ai-knowledge-platform
+
+# 2. Setup Python backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+
+# 3. Setup frontend
+cd frontend && npm install && cd ..
+
+# 4. Configure environment files
+cp .env.example .env
+cp frontend/.env.example frontend/.env
+# Edit .env and set your NEO4J_PASS
+
+# 5. Install and start Ollama LLM
+ollama pull llama3.2
+
+# 6. Start Neo4j Desktop and create/start a database
+
+# 7. Run the application (2 terminals)
+# Terminal 1 - Backend:
+python app.py
+
+# Terminal 2 - Frontend:
+cd frontend && npm start
+```
+
+**macOS Users:** Port 5000 is used by AirPlay Receiver. See [macOS Port 5000 Issue](#issue-macos-port-5000-already-in-use) for the fix.
+
+---
+
+## Table of Contents
 1. [Prerequisites](#prerequisites)
 2. [Installation](#installation)
 3. [Configuration](#configuration)
@@ -14,7 +52,7 @@
 
 ---
 
-## 🎯 What This System Does
+## What This System Does
 
 Upload your research papers (Excel/CSV) and ask questions in natural language. The system combines:
 - **Semantic Search**: Finds papers by content similarity
@@ -107,7 +145,7 @@ cd ..
 
 ---
 
-## 🔧 Configuration
+## Configuration
 
 ### 1. Configure Neo4j
 
@@ -125,39 +163,64 @@ cd ..
 - Username: `neo4j`
 - Password: `[your password]`
 
-### 2. Configure Backend
+### 2. Configure Environment Variables
 
-Edit `app.py` (lines 25-30):
+The application uses `.env` files for configuration. Copy the example files and edit them:
 
-```python
-# Update these settings
-NEO4J_URL = "bolt://localhost:7687"  # Match your Neo4j URL
-NEO4J_USER = "neo4j"
-NEO4J_PASS = "YOUR_PASSWORD_HERE"  # ⚠️ CHANGE THIS!
+```bash
+# Backend configuration
+cp .env.example .env
+
+# Frontend configuration
+cp frontend/.env.example frontend/.env
 ```
 
-**Save the file!**
+**Edit `.env`** (in project root) and set your Neo4j password:
+
+```bash
+# Flask server port (use 5001 on macOS, see troubleshooting)
+FLASK_PORT=5000
+
+# Neo4j database connection
+NEO4J_URL=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASS=your_actual_password_here  # <-- CHANGE THIS!
+```
+
+**Edit `frontend/.env`** to match your backend port:
+
+```bash
+# Backend API URL (must match FLASK_PORT above)
+REACT_APP_API_URL=http://localhost:5000
+```
+
+**Important:** Both ports must match! If backend runs on 5001, frontend must point to 5001.
 
 ---
 
-## 🚀 Running the System
+## Running the System
 
 ### Terminal 1: Start Backend (Flask API)
 
 ```bash
 # Make sure you're in project root and venv is activated
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Start the backend
 python app.py
 ```
 
 You should see:
 ```
-╔══════════════════════════════════════════════════════════╗
-║         HYBRID RAG API SERVER                           ║
-║         Automatic Neo4j Import + Web Interface          ║
-╚══════════════════════════════════════════════════════════╝
+============================================================
+         HYBRID RAG API SERVER
+         Automatic Neo4j Import + Web Interface
+============================================================
 
 Starting server on http://localhost:5000
 ```
+
+**macOS Users:** If you see "Address already in use" for port 5000, see the [troubleshooting section](#issue-macos-port-5000-already-in-use).
 
 ### Terminal 2: Start Frontend (React)
 
@@ -229,7 +292,35 @@ Results include:
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
+
+### Issue: macOS Port 5000 Already in Use
+
+**Symptom:** When starting the backend, you see:
+```
+Address already in use
+Port 5000 is in use by another program.
+```
+
+**Cause:** macOS Monterey and later use port 5000 for AirPlay Receiver.
+
+**Solution:** Use port 5001 instead. Update both config files:
+
+1. **Edit `.env`** (backend):
+```bash
+FLASK_PORT=5001
+```
+
+2. **Edit `frontend/.env`**:
+```bash
+REACT_APP_API_URL=http://localhost:5001
+```
+
+3. **Restart both servers** (frontend needs restart to pick up .env changes)
+
+**Alternative:** Disable AirPlay Receiver in System Settings > General > AirDrop & Handoff > AirPlay Receiver.
+
+---
 
 ### Issue: "Failed to process file: WinError 32"
 
@@ -465,10 +556,11 @@ Upload your research papers and start exploring! 🚀
 
 ---
 
-## 📝 Quick Reference Commands
+## Quick Reference Commands
 
 ```bash
-# Start everything
+# Start everything (from project root)
+source venv/bin/activate   # Activate Python env (Windows: venv\Scripts\activate)
 python app.py              # Terminal 1 - Backend
 cd frontend && npm start   # Terminal 2 - Frontend
 
@@ -476,16 +568,20 @@ cd frontend && npm start   # Terminal 2 - Frontend
 Ctrl+C (in both terminals)
 
 # Reset database
-Remove-Item -Path research_index_db -Recurse -Force  # Windows
 rm -rf research_index_db                              # Mac/Linux
+Remove-Item -Path research_index_db -Recurse -Force   # Windows PowerShell
 
 # Update dependencies
 pip install -r requirements.txt
 cd frontend && npm install
 
-# Check service status
+# Check service status (adjust port if using 5001)
 curl http://localhost:5000/api/health  # Backend
 curl http://localhost:3000             # Frontend
+
+# macOS: If port 5000 is blocked, update both .env files to use 5001:
+# .env: FLASK_PORT=5001
+# frontend/.env: REACT_APP_API_URL=http://localhost:5001
 ```
 
 ---
