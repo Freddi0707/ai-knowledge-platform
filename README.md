@@ -2,7 +2,6 @@
 ## Research Paper Knowledge Base with Semantic Search + Knowledge Graph
 
 ---
-
 ## Quick Start (TL;DR)
 
 ```bash

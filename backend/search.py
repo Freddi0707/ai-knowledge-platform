@@ -67,28 +67,28 @@ def create_vector_store(contents, metadatas, ids, db_path, collection_name):
     import shutil
     import time
 
-    print("\n🧮 Generating embeddings...")
+    print("\n[EMBED] Generating embeddings...")
 
     model = SentenceTransformer("all-MiniLM-L6-v2")
     embeddings = model.encode(contents, normalize_embeddings=True).tolist()
 
     # Force close any existing connections
     if os.path.exists(db_path):
-        print("🧹 Cleaning up old database...")
+        print("[CLEANUP] Cleaning up old database...")
         max_attempts = 3
         for attempt in range(max_attempts):
             try:
                 shutil.rmtree(db_path)
-                print("✅ Old database removed")
+                print("[OK] Old database removed")
                 break
             except PermissionError:
                 if attempt < max_attempts - 1:
-                    print(f"⚠️ Database locked, retrying ({attempt + 1}/{max_attempts})...")
+                    print(f"[WARN] Database locked, retrying ({attempt + 1}/{max_attempts})...")
                     time.sleep(2)
                 else:
                     # Use a new path if still locked
                     db_path = f"{db_path}_{int(time.time())}"
-                    print(f"⚠️ Using new path: {db_path}")
+                    print(f"[WARN] Using new path: {db_path}")
 
     client = PersistentClient(path=db_path)
     collection = client.get_or_create_collection(
@@ -103,14 +103,14 @@ def create_vector_store(contents, metadatas, ids, db_path, collection_name):
         metadatas=metadatas
     )
 
-    print(f"✅ Indexed {len(ids)} documents")
+    print(f"[OK] Indexed {len(ids)} documents")
 
 
 class HybridSearchEngine:
     """Combines semantic search + knowledge graph"""
 
     def __init__(self, db_path, collection_name, neo4j_url, neo4j_user, neo4j_pass, llm_model="llama3.2"):
-        print("\n🚀 Initializing Hybrid Search Engine...")
+        print("\n[INIT] Initializing Hybrid Search Engine...")
 
         # LLM - Using faster model by default
         self.llm = OllamaLLM(
@@ -119,12 +119,12 @@ class HybridSearchEngine:
             num_predict=512,  # Limit response length for speed
             timeout=120  # 2 minutes timeout
         )
-        print(f"✅ LLM loaded ({llm_model})")
+        print(f"[OK] LLM loaded ({llm_model})")
 
         # Vector store
         self.vector_model = SentenceTransformer("all-MiniLM-L6-v2")
         self.collection = PersistentClient(path=db_path).get_collection(collection_name)
-        print("✅ Vector store connected")
+        print("[OK] Vector store connected")
 
         # Knowledge graph - use plain neo4j driver for direct Cypher (no APOC needed)
         self.graph_chain = None
@@ -139,7 +139,7 @@ class HybridSearchEngine:
                 result.single()
 
             self.graph_available = True
-            print("✅ Knowledge graph connected (direct Cypher)")
+            print("[OK] Knowledge graph connected (direct Cypher)")
 
             # Optionally try LangChain QA chain (needs APOC - usually unavailable)
             try:
@@ -167,13 +167,13 @@ Cypher Query:"""
                     verbose=True,
                     return_intermediate_steps=True
                 )
-                print("✅ LangChain QA Chain available (APOC found)")
+                print("[OK] LangChain QA Chain available (APOC found)")
             except Exception as chain_error:
                 # APOC not available - that's OK, we can still use direct Cypher
-                print(f"ℹ️ LangChain QA Chain unavailable (APOC plugin not installed)")
+                print(f"[INFO] LangChain QA Chain unavailable (APOC plugin not installed)")
 
         except Exception as e:
-            print(f"⚠️ Neo4j connection failed: {e}")
+            print(f"[WARN] Neo4j connection failed: {e}")
             self.graph_available = False
 
     def _run_cypher(self, cypher: str, params: dict = None) -> list:
@@ -194,12 +194,19 @@ Cypher Query:"""
 
         # Check for author-related patterns
         author_patterns = ["written", "wrote", "author", "papers by", "paper by", "works by",
-                          "collaborated", "co-author", "coauthor", "topics by", "write about",
-                          "research by", "what does"]
+                          "collaborated", "collaborate", "co-author", "coauthor", "co-authored",
+                          "topics by", "write about", "research by", "what does", "publication",
+                          "did", "together", "joint"]
         for pattern in author_patterns:
             if pattern in query_lower:
                 print(f"   [DEBUG] Found '{pattern}' in query")
                 return True
+
+        # Check for quoted author names (strong signal for graph query)
+        import re
+        if re.search(r"['\"][^'\"]+['\"]", query):
+            print(f"   [DEBUG] Found quoted names in query - using graph search")
+            return True
 
         # Check for keyword-related queries
         if any(kw in query_lower for kw in ["keyword", "topic", "about", "related to", "papers on", "paper on", "research on"]):
@@ -325,6 +332,25 @@ Category:"""
 
                 return None
 
+            def extract_multiple_authors(text):
+                """Extract multiple author names from query, especially quoted names"""
+                import re
+                authors = []
+
+                # Pattern 1: Names in single or double quotes like 'Ahmadi, Leila' or "Bilal, Muhammad"
+                quoted_names = re.findall(r"['\"]([^'\"]+)['\"]", text)
+                for name in quoted_names:
+                    name = name.strip()
+                    if name and len(name) > 2:
+                        authors.append(name)
+
+                # Pattern 2: Names in format "Last, First" without quotes
+                if not authors:
+                    name_pattern = re.findall(r'\b([A-Z][a-zA-Z]+,\s*[A-Z][a-zA-Z]+)\b', text)
+                    authors.extend(name_pattern)
+
+                return authors
+
             # Route based on LLM intent classification
             # Pattern 1: Papers by author
             if intent == "PAPERS_BY_AUTHOR":
@@ -369,32 +395,78 @@ Category:"""
                                     dois.append(r['doi'])
                             return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
 
-            # Pattern 2: "who collaborated with [author]"
+            # Pattern 2: Collaboration queries (single or multiple authors)
             if intent == "COLLABORATIONS":
-                author_name = extract_author_name(query)
+                # First try to extract multiple authors from quotes
+                authors = extract_multiple_authors(query)
+                print(f"   [DEBUG] Extracted authors: {authors}")
 
-                if author_name:
-                    search_name = author_name.lower()
+                if len(authors) >= 2:
+                    # Multiple authors specified - find papers they co-authored together
+                    # Build dynamic Cypher query for N authors
+                    match_clauses = []
+                    where_clauses = []
+                    for i, author in enumerate(authors):
+                        match_clauses.append(f"(a{i}:Author)-[:AUTHORED]->(p)")
+                        # Use CONTAINS for flexible matching (handles "Last, First" format)
+                        author_lower = author.lower()
+                        # Try matching by last name (first part before comma) for better accuracy
+                        last_name = author.split(',')[0].strip().lower() if ',' in author else author.lower()
+                        where_clauses.append(f"toLower(a{i}.name) CONTAINS '{last_name}'")
+
                     cypher = f"""
-                    MATCH (a1:Author)-[:AUTHORED]->(p:Paper)<-[:AUTHORED]-(a2:Author)
-                    WHERE toLower(a1.name) CONTAINS '{search_name}'
-                    AND a1 <> a2
-                    RETURN DISTINCT a2.name as collaborator, p.title as paper, p.doi as doi
+                    MATCH (p:Paper)
+                    MATCH {', '.join(match_clauses)}
+                    WHERE {' AND '.join(where_clauses)}
+                    RETURN p.title as title, p.doi as doi, [{', '.join([f'a{i}.name' for i in range(len(authors))])}] as authors
                     LIMIT 10
                     """
+                    print(f"   [DEBUG] Multi-author Cypher: {cypher}")
                     results = self._run_cypher(cypher)
 
                     if results:
-                        result_text = f"Authors who collaborated with {author_name}:\n"
-                        collaborators = set()
+                        result_text = f"Found {len(results)} publication(s) co-authored by {' and '.join(authors)}:\n"
                         dois = []
                         for r in results:
-                            collaborators.add(r['collaborator'])
+                            result_text += f"\n• '{r['title']}'"
+                            if r.get('authors'):
+                                result_text += f"\n  Authors: {', '.join(r['authors'])}"
                             if r.get('doi'):
                                 dois.append(r['doi'])
-                        for collab in collaborators:
-                            result_text += f"\n• {collab}"
                         return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
+                    else:
+                        # No results - provide helpful message
+                        result_text = f"No publications found where {' and '.join(authors)} collaborated together.\n"
+                        result_text += "This could mean:\n• The authors haven't co-authored papers in this dataset\n• The author names may be spelled differently in the database"
+                        return {"success": True, "cypher": cypher, "result": result_text, "dois": []}
+
+                else:
+                    # Single author - find all their collaborators
+                    author_name = extract_author_name(query) or (authors[0] if authors else None)
+
+                    if author_name:
+                        search_name = author_name.lower()
+                        last_name = search_name.split(',')[0].strip() if ',' in search_name else search_name
+                        cypher = f"""
+                        MATCH (a1:Author)-[:AUTHORED]->(p:Paper)<-[:AUTHORED]-(a2:Author)
+                        WHERE toLower(a1.name) CONTAINS '{last_name}'
+                        AND a1 <> a2
+                        RETURN DISTINCT a2.name as collaborator, p.title as paper, p.doi as doi
+                        LIMIT 10
+                        """
+                        results = self._run_cypher(cypher)
+
+                        if results:
+                            result_text = f"Authors who collaborated with {author_name}:\n"
+                            collaborators = set()
+                            dois = []
+                            for r in results:
+                                collaborators.add(r['collaborator'])
+                                if r.get('doi'):
+                                    dois.append(r['doi'])
+                            for collab in collaborators:
+                                result_text += f"\n• {collab}"
+                            return {"success": True, "cypher": cypher, "result": result_text, "dois": dois}
 
             # Pattern 3: "papers by same author" or "authors with multiple papers"
             if "same author" in query_lower or "multiple papers" in query_lower:
@@ -558,7 +630,7 @@ Category:"""
         import time as time_module
 
         print(f"\n{'=' * 60}")
-        print(f"🔍 Query: {query}")
+        print(f"[QUERY] {query}")
         print(f"{'=' * 60}")
 
         # Transparency tracking
@@ -569,12 +641,13 @@ Category:"""
         }
         total_start = time_module.time()
 
-        # Check if graph search is needed FIRST (for author/keyword queries)
+        # Always check if graph search could be useful
         use_graph = self.should_use_graph(query)
-        print(f"\n🔍 Graph search needed: {use_graph}")
+        print(f"\n[CHECK] Graph search needed: {use_graph}")
 
-        # Semantic search
-        print("\n📚 Running semantic search...")
+        # ALWAYS run both searches for comprehensive results
+        # Step 1: Semantic search
+        print("\n[SEARCH] Running semantic search...")
         step_start = time_module.time()
         vector_results, similarities, best_score = self.semantic_search(query)
         transparency["timing"]["semantic_search"] = round(time_module.time() - step_start, 2)
@@ -582,42 +655,53 @@ Category:"""
         transparency["steps"].append({
             "name": "Semantic Search",
             "description": f"Searched {self.collection.count()} documents using sentence embeddings",
-            "result": f"Found {len(similarities) if similarities else 0} relevant papers (best match: {best_score:.1%})"
+            "result": f"Found {len(similarities) if similarities else 0} relevant papers (best match: {best_score:.1%})" if similarities else "No semantic matches found"
         })
 
-        # If no semantic results BUT graph is needed, try graph-only answer
-        if vector_results is None:
-            if use_graph:
-                print("\n🔗 No semantic results, trying graph-only search...")
-                step_start = time_module.time()
-                graph_response = self.graph_search(query)
-                transparency["timing"]["graph_search"] = round(time_module.time() - step_start, 2)
+        # Step 2: ALWAYS run graph search when graph is available (for better accuracy)
+        graph_response = None
+        graph_dois = []
+        if self.graph_available:
+            print("\n[GRAPH] Running knowledge graph search...")
+            step_start = time_module.time()
+            graph_response = self.graph_search(query)
+            transparency["timing"]["graph_search"] = round(time_module.time() - step_start, 2)
 
-                if graph_response["success"]:
-                    transparency["methods_used"].append("Knowledge Graph (Neo4j)")
-                    transparency["steps"].append({
-                        "name": "Graph Search",
-                        "description": "Queried Neo4j knowledge graph for structured relationships",
-                        "result": "Found results via graph query",
-                        "cypher": graph_response.get("cypher")
-                    })
+            if graph_response.get("success"):
+                transparency["methods_used"].append("Knowledge Graph (Neo4j)")
+                transparency["steps"].append({
+                    "name": "Graph Search",
+                    "description": "Queried Neo4j knowledge graph for structured relationships",
+                    "result": "Found results via graph query",
+                    "cypher": graph_response.get("cypher")
+                })
+                graph_dois = graph_response.get("dois", [])
+                print(f"[OK] Graph search found {len(graph_dois)} matching DOIs")
+            else:
+                transparency["steps"].append({
+                    "name": "Graph Search",
+                    "description": "Queried Neo4j knowledge graph",
+                    "result": graph_response.get("error", "No graph results found")
+                })
+                print(f"[INFO] Graph search: {graph_response.get('result', 'No results')[:100]}")
 
-                    # Fetch full metadata for DOIs found in graph search
-                    sources = []
-                    similarities = []
-                    graph_dois = graph_response.get("dois", [])
-                    if graph_dois:
-                        try:
-                            # Get metadata from vector store for these DOIs
-                            graph_results = self.collection.get(
-                                ids=graph_dois,
-                                include=["metadatas"]
-                            )
-                            if graph_results and graph_results.get("metadatas"):
-                                sources = graph_results["metadatas"]
-                                similarities = [1.0] * len(sources)  # Graph matches are exact
-                        except Exception as e:
-                            print(f"   Could not fetch metadata for graph DOIs: {e}")
+        # Step 3: Combine results - prioritize graph results for author/collaboration queries
+        # If graph found specific papers, use those; otherwise fall back to semantic
+        if graph_dois:
+            print(f"[COMBINE] Using graph results as primary source ({len(graph_dois)} papers)")
+            try:
+                # Get metadata from vector store for graph DOIs
+                # Handle potential duplicates
+                unique_dois = list(dict.fromkeys(graph_dois))
+                graph_metadata = self.collection.get(
+                    ids=unique_dois,
+                    include=["metadatas"]
+                )
+                if graph_metadata and graph_metadata.get("metadatas"):
+                    # Graph found specific papers - use these as primary results
+                    sources = graph_metadata["metadatas"]
+                    similarities = [1.0] * len(sources)  # Graph matches are exact
+                    best_score = 1.0
 
                     transparency["timing"]["total"] = round(time_module.time() - total_start, 2)
 
@@ -625,24 +709,48 @@ Category:"""
                         "answer": graph_response["result"],
                         "sources": sources,
                         "similarities": similarities,
-                        "best_score": 1.0 if sources else 0,
+                        "best_score": best_score,
                         "graph_used": True,
                         "cypher_query": graph_response.get("cypher"),
                         "transparency": transparency
                     }
+            except Exception as e:
+                print(f"   [WARN] Could not fetch graph metadata: {e}")
 
+        # If no graph results with DOIs but graph had a text answer, still use it
+        if graph_response and graph_response.get("success") and graph_response.get("result"):
+            graph_text = graph_response.get("result", "")
+            # Check if graph found meaningful results (not just "no results" messages)
+            if graph_text and "No publications found" not in graph_text and "No results" not in graph_text:
+                # Graph has useful info but no DOIs - return graph answer
+                transparency["timing"]["total"] = round(time_module.time() - total_start, 2)
+                return {
+                    "answer": graph_text,
+                    "sources": [],
+                    "similarities": [],
+                    "best_score": 0,
+                    "graph_used": True,
+                    "cypher_query": graph_response.get("cypher"),
+                    "transparency": transparency
+                }
+
+        # Fall back to semantic results if no graph results
+        if vector_results is None:
             # No results from either search
             transparency["timing"]["total"] = round(time_module.time() - total_start, 2)
+            no_result_msg = "No relevant papers found in the database."
+            if graph_response and graph_response.get("result"):
+                no_result_msg = graph_response.get("result")
             return {
-                "answer": "❌ No relevant papers found.",
+                "answer": no_result_msg,
                 "sources": [],
                 "similarities": [],
                 "best_score": 0,
-                "graph_used": False,
+                "graph_used": bool(graph_response and graph_response.get("success")),
                 "transparency": transparency
             }
 
-        print(f"✅ Found {len(vector_results['documents'][0])} papers (score: {best_score:.3f})")
+        print(f"[OK] Found {len(vector_results['documents'][0])} papers (score: {best_score:.3f})")
 
         # Extract context with numbered citations
         docs = vector_results["documents"][0]
@@ -658,7 +766,7 @@ Category:"""
         graph_similarities = []
 
         if use_graph:
-            print("\n🔗 Running graph query...")
+            print("\n[GRAPH] Running graph query...")
             step_start = time_module.time()
             graph_response = self.graph_search(query)
             transparency["timing"]["graph_search"] = round(time_module.time() - step_start, 2)
@@ -675,7 +783,7 @@ Category:"""
                     "result": f"Found graph data using Cypher query",
                     "cypher": cypher_query
                 })
-                print(f"✅ Graph query successful")
+                print(f"[OK] Graph query successful")
                 print(f"   Result preview: {graph_context[:100]}...")  # DEBUG
 
                 # Fetch metadata for papers found by graph search
@@ -736,17 +844,17 @@ Category:"""
                     "description": "Attempted graph query but no results found",
                     "result": graph_response.get('error', 'No matching pattern')
                 })
-                print(f"⚠️ Graph query failed: {graph_response.get('error')}")
+                print(f"[WARN] Graph query failed: {graph_response.get('error')}")
         else:
             transparency["steps"].append({
                 "name": "Graph Search",
                 "description": "Skipped - query doesn't require graph patterns",
                 "result": "Not needed for this query type"
             })
-            print("\n📄 Semantic only (no graph needed)")
+            print("\n[SEMANTIC] Semantic only (no graph needed)")
 
         # Generate answer
-        print("\n🤖 Generating answer (this may take 10-30 seconds)...")
+        print("\n[LLM] Generating answer (this may take 10-30 seconds)...")
         step_start = time_module.time()
 
         # Build context from the right sources
@@ -761,37 +869,44 @@ Category:"""
             source_context = semantic_context
 
         if use_graph and graph_context and "No results found" not in graph_context:
-            prompt = f"""Answer the question using the numbered sources below. Use inline citations like [1], [2] to reference specific papers.
+            prompt = f"""You are a research assistant. Your task is to answer questions ONLY using the provided sources.
+
+QUESTION: {query}
 
 SOURCES:
 {source_context}
 
-GRAPH CONTEXT (structured data from knowledge graph):
+GRAPH CONTEXT:
 {graph_context}
 
-QUESTION: {query}
+CRITICAL RULES:
+1. FIRST, check if ANY of the sources above actually discuss the topic in the QUESTION.
+2. If NONE of the sources are relevant to the question, you MUST respond EXACTLY with:
+   "I cannot answer this question based on the available research papers. The uploaded documents do not contain relevant information about this topic. Please try a different question related to the papers in your dataset."
+3. Do NOT answer questions about topics not covered in the sources.
+4. Do NOT use your general knowledge - ONLY use information from the sources.
+5. If you answer, use [1], [2], [3] citations and write 2-3 paragraphs maximum.
 
-INSTRUCTIONS:
-- Write 2-3 paragraphs maximum
-- Use [1], [2], [3] etc. to cite sources inline
-- Only cite sources that directly support your statements
-- Be concise and factual
-- The GRAPH CONTEXT shows what the knowledge graph found - use this to inform your answer
+Before answering, ask yourself: "Do these sources actually talk about {query.split()[0:5]}...?" If NO, decline to answer.
 
 ANSWER:"""
         else:
-            prompt = f"""Answer the question using the numbered sources below. Use inline citations like [1], [2] to reference specific papers.
+            prompt = f"""You are a research assistant. Your task is to answer questions ONLY using the provided sources.
+
+QUESTION: {query}
 
 SOURCES:
 {semantic_context}
 
-QUESTION: {query}
+CRITICAL RULES:
+1. FIRST, check if ANY of the sources above actually discuss the topic in the QUESTION.
+2. If NONE of the sources are relevant to the question, you MUST respond EXACTLY with:
+   "I cannot answer this question based on the available research papers. The uploaded documents do not contain relevant information about this topic. Please try a different question related to the papers in your dataset."
+3. Do NOT answer questions about topics not covered in the sources.
+4. Do NOT use your general knowledge - ONLY use information from the sources.
+5. If you answer, use [1], [2], [3] citations and write 2-3 paragraphs maximum.
 
-INSTRUCTIONS:
-- Write 2-3 paragraphs maximum
-- Use [1], [2], [3] etc. to cite sources inline
-- Only cite sources that directly support your statements
-- Be concise and factual
+Before answering, ask yourself: "Do these sources actually talk about {query.split()[0:5]}...?" If NO, decline to answer.
 
 ANSWER:"""
 
@@ -804,10 +919,10 @@ ANSWER:"""
                 "description": f"Generated answer using local LLM model",
                 "result": f"Answer generated in {transparency['timing']['llm_generation']}s"
             })
-            print("✅ Answer generated")
+            print("[OK] Answer generated")
         except Exception as e:
-            print(f"⚠️ LLM timeout or error: {e}")
-            answer = "⚠️ Answer generation timed out. Please try a simpler question or use a faster model."
+            print(f"[WARN] LLM timeout or error: {e}")
+            answer = "Answer generation timed out. Please try a simpler question or use a faster model."
             transparency["steps"].append({
                 "name": "LLM Generation",
                 "description": "LLM answer generation failed",

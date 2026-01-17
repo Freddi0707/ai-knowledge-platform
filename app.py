@@ -64,18 +64,18 @@ def auto_import_to_neo4j(df):
     Automatically import data to Neo4j using Python driver
     No manual CSV copying needed!
     """
-    print("\n🔗 Connecting to Neo4j...")
+    print("\n[CONNECT] Connecting to Neo4j...")
 
     driver = GraphDatabase.driver(NEO4J_URL, auth=(NEO4J_USER, NEO4J_PASS))
 
     try:
         with driver.session() as session:
             # Clear existing data
-            print("🧹 Clearing old data...")
+            print("[CLEAN] Clearing old data...")
             session.run("MATCH (n) DETACH DELETE n")
 
             # Create constraints
-            print("📋 Creating constraints...")
+            print("[SCHEMA] Creating constraints...")
             session.run("""
                 CREATE CONSTRAINT paper_id_unique IF NOT EXISTS 
                 FOR (p:Paper) REQUIRE p.paper_id IS UNIQUE
@@ -90,7 +90,7 @@ def auto_import_to_neo4j(df):
             """)
 
             # Import Papers
-            print("📄 Importing papers...")
+            print("[PAPERS] Importing papers...")
             for _, row in df.iterrows():
                 doi = safe_str(row.get("doi", "")).strip()
                 if not doi:
@@ -117,7 +117,7 @@ def auto_import_to_neo4j(df):
                 })
 
             # Import Authors and Relationships
-            print("👥 Importing authors...")
+            print("[AUTHORS] Importing authors...")
             for _, row in df.iterrows():
                 doi = safe_str(row.get("doi", "")).strip()
                 if not doi:
@@ -140,7 +140,7 @@ def auto_import_to_neo4j(df):
                     """, {"author_id": author_id, "paper_id": doi})
 
             # Import Keywords (author_keywords and keywords_plus)
-            print("🏷️ Importing keywords...")
+            print("[KEYWORDS] Importing keywords...")
             for _, row in df.iterrows():
                 doi = safe_str(row.get("doi", "")).strip()
                 if not doi:
@@ -205,7 +205,7 @@ def auto_import_to_neo4j(df):
             # Verify import
             result = session.run("MATCH (n) RETURN count(n) as count")
             count = result.single()["count"]
-            print(f"✅ Imported {count} nodes to Neo4j")
+            print(f"[OK] Imported {count} nodes to Neo4j")
 
     finally:
         driver.close()
@@ -236,14 +236,14 @@ def upload_file():
         file.save(filepath)
 
         # Step 1: ETL - Load and clean data
-        print("\n📊 Step 1: Processing data...")
+        print("\n[STEP 1] Processing data...")
         df = load_and_parse_standard_data(filepath)
 
         if df.empty:
             return jsonify({'error': 'No valid papers found in file'}), 400
 
         # Step 2: Create vector embeddings
-        print("\n🧮 Step 2: Creating vector embeddings...")
+        print("\n[STEP 2] Creating vector embeddings...")
         global current_db_path
         # Release old ChromaDB connection before creating new store
         if search_engine is not None:
@@ -265,11 +265,11 @@ def upload_file():
         create_vector_store(contents, metadatas, ids, current_db_path, COLLECTION_NAME)
 
         # Step 3: Auto-import to Neo4j
-        print("\n🔗 Step 3: Importing to Neo4j...")
+        print("\n[STEP 3] Importing to Neo4j...")
         auto_import_to_neo4j(df)
 
         # Step 4: Initialize search engine
-        print("\n🚀 Step 4: Initializing search engine...")
+        print("\n[STEP 4] Initializing search engine...")
         search_engine = HybridSearchEngine(
             db_path=current_db_path,
             collection_name=COLLECTION_NAME,
@@ -291,7 +291,7 @@ def upload_file():
         })
 
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"[ERROR] {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -345,7 +345,7 @@ def search():
         return jsonify(response)
 
     except Exception as e:
-        print(f"❌ Search error: {str(e)}")
+        print(f"[ERROR] Search error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 

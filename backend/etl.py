@@ -109,10 +109,10 @@ def safe_str(x):
 # Ask user for file path (CLI helper)
 # ------------------------------------------------------------
 def get_user_file_path() -> Optional[str]:
-    print("\n📂 Enter CSV/XLS/XLSX file path:")
+    print("\n[INPUT] Enter CSV/XLS/XLSX file path:")
     fp = input("File path: ").strip().strip('"').strip("'")
     if not os.path.exists(fp):
-        print("❌ File not found.")
+        print("[ERROR] File not found.")
         return None
     return fp
 
@@ -121,7 +121,7 @@ def get_user_file_path() -> Optional[str]:
 # Load + Parse standardized dataset (ETL Stage 1)
 # ------------------------------------------------------------
 def load_and_parse_standard_data(file_path: str) -> pd.DataFrame:
-    print(f"\n📄 Loading standardized file: {file_path}")
+    print(f"\n[LOAD] Loading standardized file: {file_path}")
 
     # Load file
     if file_path.lower().endswith(".csv"):
@@ -144,13 +144,13 @@ def load_and_parse_standard_data(file_path: str) -> pd.DataFrame:
     df = df.loc[:, ~df.columns.duplicated()]
 
     # Debug: show exact representations
-    print("🧾 Normalized columns:", [repr(c) for c in df.columns])
+    print("[COLUMNS] Normalized columns:", [repr(c) for c in df.columns])
 
     # Validate required columns
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(
-            f"❌ Missing required columns: {missing}\n"
+            f"[ERROR] Missing required columns: {missing}\n"
             f"Found columns: {list(df.columns)}"
         )
 
@@ -158,7 +158,7 @@ def load_and_parse_standard_data(file_path: str) -> pd.DataFrame:
     for col, default_val in COLUMNS_WITH_DEFAULTS.items():
         if col not in df.columns:
             df[col] = default_val
-            print(f"📝 Added default column '{col}' = '{default_val}'")
+            print(f"[DEFAULT] Added default column '{col}' = '{default_val}'")
 
     # Keep only known columns (stable order)
     all_known_columns = REQUIRED_COLUMNS + list(COLUMNS_WITH_DEFAULTS.keys())
@@ -180,8 +180,8 @@ def load_and_parse_standard_data(file_path: str) -> pd.DataFrame:
     ]
     after = len(df)
 
-    print(f"✔ Rows before filter: {before}")
-    print(f"✔ Rows after filter:  {after}")
+    print(f"[OK] Rows before filter: {before}")
+    print(f"[OK] Rows after filter:  {after}")
 
     # Apply journal rankings lookup
     df = apply_journal_rankings(df)
@@ -199,10 +199,10 @@ def apply_journal_rankings(df: pd.DataFrame) -> pd.DataFrame:
     try:
         ranking_service = get_ranking_service()
     except Exception as e:
-        print(f"⚠️ Could not load ranking service: {e}")
+        print(f"[WARN] Could not load ranking service: {e}")
         return df
 
-    print("\n📊 Looking up journal rankings...")
+    print("\n[RANKING] Looking up journal rankings...")
     vhb_found = 0
     abdc_found = 0
 
@@ -686,7 +686,7 @@ def export_neo4j_csvs(
     # =========================================================
     # PRINT SUMMARY
     # =========================================================
-    print("\n📤 Neo4j CSV Export complete:")
+    print("\n[EXPORT] Neo4j CSV Export complete:")
     print("\n  Nodes:")
     print(f"   - documents:      {len(documents_export)}")
     print(f"   - authors:        {len(authors_df)}")
@@ -703,7 +703,7 @@ def export_neo4j_csvs(
     print(f"   - same_year_as:       {len(same_year_df)}")
     print(f"   - is_valid_in_year:   {len(valid_in_year_df)}")
 
-    print(f"\n📁 Output dir: {os.path.abspath(out_dir)}")
+    print(f"\n[DIR] Output dir: {os.path.abspath(out_dir)}")
     return written
 
 
@@ -840,7 +840,7 @@ MERGE (r)-[:IS_VALID_IN_YEAR]->(y);
     with open(cypher_path, "w", encoding="utf-8") as f:
         f.write(cypher + "\n")
 
-    print(f"\n🧾 Wrote Cypher import script: {os.path.abspath(cypher_path)}")
+    print(f"\n[CYPHER] Wrote Cypher import script: {os.path.abspath(cypher_path)}")
     return cypher_path
 
 
@@ -860,8 +860,8 @@ if __name__ == "__main__":
             # 4. Generate the Cypher script to automate the database import
             write_neo4j_import_cypher()
 
-            print("\n✅ ETL Pipeline finished successfully!")
+            print("\n[OK] ETL Pipeline finished successfully!")
             print("Next step: Copy the CSVs and .cypher file to your Neo4j 'import' folder.")
 
         except Exception as e:
-            print(f"\n❌ An error occurred during processing: {e}")
+            print(f"\n[ERROR] An error occurred during processing: {e}")
