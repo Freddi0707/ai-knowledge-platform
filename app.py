@@ -261,7 +261,7 @@ def upload_file():
             try:
                 import shutil
                 shutil.rmtree(current_db_path)
-            except:
+            except Exception:
                 pass  # Ignore cleanup errors
         current_db_path = new_db_path
         contents, metadatas, ids = create_documents_and_metadata(df)

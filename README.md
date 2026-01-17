@@ -442,21 +442,27 @@ ai-knowledge-platform/
 
 ## 🔒 Security Notes
 
-### For Production Deployment:
+### Environment Variables
 
-1. **Change default password** in `app.py`
-2. **Enable HTTPS** for API
-3. **Add authentication** for multi-user access
-4. **Use environment variables** for secrets:
+This application uses environment variables for all sensitive configuration. Required variables:
 
-```python
-# Instead of hardcoding in app.py:
-import os
-NEO4J_PASS = os.getenv("NEO4J_PASSWORD")
+```bash
+# .env file (copy from .env.example)
+NEO4J_PASS=your_neo4j_password_here  # Required - app will fail without this
+NEO4J_URL=bolt://localhost:7687
+NEO4J_USER=neo4j
+FLASK_PORT=5000
 ```
 
-5. **Rate limit** API endpoints
-6. **Validate file uploads** strictly
+The application will raise an error on startup if `NEO4J_PASS` is not set.
+
+### For Production Deployment:
+
+1. **Never commit `.env` files** - already in .gitignore
+2. **Enable HTTPS** for API
+3. **Add authentication** for multi-user access
+4. **Rate limit** API endpoints
+5. **Validate file uploads** strictly
 
 ---
 
@@ -525,7 +531,7 @@ npm run build
 - [ ] All dependencies installed? (`pip install -r requirements.txt`)
 - [ ] Neo4j Desktop running and database started?
 - [ ] Ollama model installed? (`ollama list`)
-- [ ] Correct password in `app.py`?
+- [ ] `.env` file configured with `NEO4J_PASS`?
 - [ ] Both terminals running (Flask + React)?
 - [ ] No old `research_index_db` folder locking database?
 
