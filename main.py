@@ -7,6 +7,8 @@ Run:
 """
 
 import sys
+import os
+from dotenv import load_dotenv
 from backend.etl import (
     load_and_parse_standard_data,
     get_user_file_path,
@@ -19,12 +21,18 @@ from backend.search import (
     HybridSearchEngine
 )
 
+# Load environment variables
+load_dotenv()
+
 # Configuration
-DB_PATH = "./research_index_db"
-COLLECTION_NAME = "papers_collection"
-NEO4J_URL = "bolt://localhost:7687"
-NEO4J_USER = "neo4j"
-NEO4J_PASS = "password"  # ⚠️ CHANGE THIS
+DB_PATH = os.getenv('DB_PATH', './research_index_db')
+COLLECTION_NAME = os.getenv('COLLECTION_NAME', 'papers_collection')
+NEO4J_URL = os.getenv('NEO4J_URL', 'bolt://localhost:7687')
+NEO4J_USER = os.getenv('NEO4J_USER', 'neo4j')
+NEO4J_PASS = os.getenv('NEO4J_PASS')
+
+if not NEO4J_PASS:
+    raise ValueError("NEO4J_PASS environment variable is required. Set it in .env file.")
 
 
 def run_complete_pipeline(file_path: str):

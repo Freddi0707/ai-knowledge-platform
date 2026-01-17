@@ -43,8 +43,11 @@ DB_PATH = os.getenv('DB_PATH', './research_index_db')
 COLLECTION_NAME = os.getenv('COLLECTION_NAME', 'papers_collection')
 NEO4J_URL = os.getenv('NEO4J_URL', 'bolt://localhost:7687')
 NEO4J_USER = os.getenv('NEO4J_USER', 'neo4j')
-NEO4J_PASS = os.getenv('NEO4J_PASS', 'password')
+NEO4J_PASS = os.getenv('NEO4J_PASS')
 FLASK_PORT = int(os.getenv('FLASK_PORT', '5000'))
+
+if not NEO4J_PASS:
+    raise ValueError("NEO4J_PASS environment variable is required. Set it in .env file.")
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 
 # Enable CORS for frontend (restrict to specific origin in production)
