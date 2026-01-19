@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { forceCollide } from 'd3-force';
-import { ZoomIn, ZoomOut, Maximize2, Info, List, Network, HelpCircle, X } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Info, List, Network, HelpCircle, X, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import FilterSidebar from './FilterSidebar';
 import ConnectionModal from './ConnectionModal';
 
@@ -376,6 +377,100 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
   const handleZoomOut = () => graphRef.current?.zoom(graphRef.current.zoom() / 1.5, 400);
   const handleFitView = () => graphRef.current?.zoomToFit(400, 50);
 
+  // PNG Export Handler
+  const handleExportPNG = useCallback(() => {
+    if (!graphRef.current || graphData.nodes.length === 0) return;
+
+    try {
+      // ForceGraph2D renders to a canvas element inside its container
+      // Access it through the DOM
+      const graphContainer = graphRef.current;
+      const canvas = graphContainer?.renderer?.()?.domElement;
+
+      if (!canvas) {
+        // Fallback: try to find canvas in document
+        const containerCanvas = document.querySelector('.force-graph-container canvas') ||
+          document.querySelector('canvas');
+        if (containerCanvas) {
+          exportCanvasToPNG(containerCanvas);
+        } else {
+          console.error('Could not find canvas element');
+        }
+        return;
+      }
+
+      exportCanvasToPNG(canvas);
+    } catch (error) {
+      console.error('PNG export error:', error);
+    }
+  }, [graphData.nodes.length]);
+
+  const exportCanvasToPNG = (canvas) => {
+    // Create a new canvas with white background
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = canvas.width;
+    exportCanvas.height = canvas.height;
+    const ctx = exportCanvas.getContext('2d');
+
+    // Fill with light background (matches app background)
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+    // Draw the original canvas content on top
+    ctx.drawImage(canvas, 0, 0);
+
+    // Convert to data URL and trigger download
+    const dataURL = exportCanvas.toDataURL('image/png', 1.0);
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const filename = `knowledge_graph_${timestamp}.png`;
+
+    // Create download link
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = dataURL;
+    link.click();
+  };
+
+  // Excel Export Handler for List View
+  const handleExportExcel = useCallback(() => {
+    if (filteredPapers.length === 0) return;
+
+    const excelData = filteredPapers
+      .sort((a, b) => (parseInt(b.citations) || 0) - (parseInt(a.citations) || 0))
+      .map((paper, index) => ({
+        'No.': index + 1,
+        'Title': paper.title || '',
+        'Authors': paper.authors || '',
+        'Year': paper.date ? paper.date.substring(0, 4) : '',
+        'Journal': paper.journal_name || '',
+        'VHB Ranking': paper.vhbRanking || '',
+        'ABDC Ranking': paper.abdcRanking || '',
+        'Citations': paper.citations || 0,
+        'DOI': paper.doi || '',
+        'Abstract': paper.abstract || ''
+      }));
+
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Papers');
+
+    worksheet['!cols'] = [
+      { wch: 5 },   // No.
+      { wch: 50 },  // Title
+      { wch: 40 },  // Authors
+      { wch: 6 },   // Year
+      { wch: 30 },  // Journal
+      { wch: 10 },  // VHB
+      { wch: 10 },  // ABDC
+      { wch: 10 },  // Citations
+      { wch: 30 },  // DOI
+      { wch: 100 }  // Abstract
+    ];
+
+    const timestamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(workbook, `papers_${timestamp}.xlsx`);
+  }, [filteredPapers]);
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-full flex flex-col">
       {/* Header */}
@@ -502,6 +597,15 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                 </button>
                 <button onClick={handleFitView} className="p-1.5 hover:bg-slate-200 rounded" title="Fit to view">
                   <Maximize2 className="w-4 h-4 text-slate-500" />
+                </button>
+                <div className="w-px h-4 bg-slate-200 mx-1" />
+                <button
+                  onClick={handleExportPNG}
+                  disabled={graphData.nodes.length === 0}
+                  className="p-1.5 hover:bg-slate-200 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Download graph as PNG image"
+                >
+                  <Download className="w-4 h-4 text-slate-500" />
                 </button>
               </div>
             </div>
@@ -680,10 +784,26 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
 
           {/* List View */}
           {viewMode === 'list' && (
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* List Controls */}
+              <div className="flex items-center justify-between px-4 py-2 bg-slate-50/50 border-b border-slate-100">
+                <span className="text-xs text-slate-500">{filteredPapers.length} papers</span>
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={handleExportExcel}
+                    disabled={filteredPapers.length === 0}
+                    className="p-1.5 hover:bg-slate-200 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Download paper list as Excel file"
+                  >
+                    <Download className="w-4 h-4 text-slate-500" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 sticky top-0">
                   <tr className="border-b border-slate-200">
+                    <th className="text-center px-2 py-3 font-medium text-slate-600 w-12">No.</th>
                     <th className="text-left px-4 py-3 font-medium text-slate-600">Title</th>
                     <th className="text-left px-4 py-3 font-medium text-slate-600">Authors</th>
                     <th className="text-center px-4 py-3 font-medium text-slate-600 w-20">Year</th>
@@ -699,6 +819,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                       onClick={() => setSelectedPaper(paper)}
                       className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
                     >
+                      <td className="px-2 py-3 text-center text-slate-500">{idx + 1}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center">
                           <div
@@ -740,6 +861,7 @@ export default function GraphExplorer({ papers = [], highlightedSources = null }
                   <p>No papers match the filters.</p>
                 </div>
               )}
+              </div>
             </div>
           )}
 

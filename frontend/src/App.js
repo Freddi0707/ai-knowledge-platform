@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp, Home, Eye, Clock, Code, Info, X } from 'lucide-react';
+import { Upload, Search, FileText, Loader, CheckCircle, MessageSquare, Send, ChevronDown, ChevronUp, Home, Eye, Clock, Code, Info, X, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import TransparencyPanel from './components/TransparencyPanel';
 import ProportionalityPanel from './components/ProportionalityPanel';
 import SourceCard from './components/SourceCard';
@@ -476,6 +477,55 @@ export default function HybridRAGInterface() {
       setSearching(false);
       setShowResults(true);
     }
+  };
+
+  // ========== EXCEL EXPORT ==========
+  const exportToExcel = () => {
+    if (!results?.sources || results.sources.length === 0) return;
+
+    // Transform sources data to flat structure for Excel
+    const excelData = results.sources.map((source, index) => ({
+      'No.': index + 1,
+      'Title': source.title || '',
+      'Authors': source.authors || '',
+      'Year': source.year || (source.date ? source.date.substring(0, 4) : ''),
+      'Journal': source.journal_name || '',
+      'VHB Ranking': source.vhbRanking || '',
+      'ABDC Ranking': source.abdcRanking || '',
+      'Citations': source.citations || 0,
+      'Similarity %': Math.round((source.similarity || 0) * 100),
+      'DOI': source.doi || '',
+      'URL': source.url || '',
+      'Abstract': source.abstract || ''
+    }));
+
+    // Create workbook and worksheet
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Search Results');
+
+    // Set column widths for better readability
+    worksheet['!cols'] = [
+      { wch: 5 },   // No.
+      { wch: 50 },  // Title
+      { wch: 40 },  // Authors
+      { wch: 6 },   // Year
+      { wch: 30 },  // Journal
+      { wch: 10 },  // VHB
+      { wch: 10 },  // ABDC
+      { wch: 10 },  // Citations
+      { wch: 12 },  // Similarity
+      { wch: 30 },  // DOI
+      { wch: 40 },  // URL
+      { wch: 100 }  // Abstract
+    ];
+
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const filename = `search_results_${timestamp}.xlsx`;
+
+    // Trigger download
+    XLSX.writeFile(workbook, filename);
   };
 
   // ========== RENDER ==========
